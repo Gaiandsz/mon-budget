@@ -2,6 +2,7 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
+<meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
 <title>Mon Budget — Tableau de bord</title>
@@ -93,13 +94,8 @@ input,select{font-size:16px}
 </head>
 <body>
 <section class="cloud-panel" aria-label="Accès au budget partagé">
-  <div class="space"><strong>Mon Budget partagé</strong><button type="button" class="ghost small" id="cloud-logout" hidden>Déconnexion</button></div>
+  <strong>Mon Budget partagé</strong>
   <p id="cloud-status" role="status">Chargement…</p>
-  <form id="cloud-login" hidden>
-    <label>Adresse e-mail<input name="email" type="email" autocomplete="username" required></label>
-    <label>Mot de passe<input name="password" type="password" autocomplete="current-password" required></label>
-    <button class="primary">Se connecter</button>
-  </form>
   <div class="row"><button type="button" class="primary small" id="cloud-retry" hidden>Réessayer</button><button type="button" class="ghost small" id="cloud-reload" hidden>Recharger la version en ligne</button></div>
 </section>
 <div id="cloud-app" hidden>
@@ -108,7 +104,6 @@ input,select{font-size:16px}
 <div id="toast" role="status" aria-live="polite"></div>
 
 </div>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 'use strict';
 const CLOUD_URL = "https://fxqthehnvbpewnjxzazz.supabase.co";
@@ -496,15 +491,22 @@ function saveMonthlyForm(form) {
 
 let keepPlanOpen=false;
 const cloudStatus = document.getElementById('cloud-status');
-const login = document.getElementById('cloud-login');
 const app = document.getElementById('cloud-app');
-const signOut = document.getElementById('cloud-logout');
 const retry = document.getElementById('cloud-retry');
 const reload = document.getElementById('cloud-reload');
-const cloud = window.supabase?.createClient(CLOUD_URL, CLOUD_KEY);
+const linkKey = new URLSearchParams(location.hash.slice(1)).get('acces');
+const validLink = /^[a-f0-9]{64}$/.test(linkKey || '');
+async function budgetRequest(method, body={}) {
+  const response = await fetch(CLOUD_URL + '/rest/v1/rpc/' + method, {
+    method:'POST', credentials:'omit', referrerPolicy:'no-referrer', cache:'no-store',
+    headers:{apikey:CLOUD_KEY,'Content-Type':'application/json'},
+    body:JSON.stringify({p_cle:linkKey,...body}),
+  });
+  if (!response.ok) throw new Error('Accès indisponible');
+  return response.json();
+}
 
 let revision = null;
-let account = null;
 let pending = null;
 let busy = false;
 let conflict = false;
@@ -531,16 +533,22 @@ function installSharedBudget(data, version) {
 }
 
 async function refreshSharedBudget(epoch=generation) {
-  if (!account || busy || pending) return;
-  const {data, error} = await cloud.from('mon_budget_partage').select('revision, payload').eq('id',1).maybeSingle();
-  if (epoch !== generation || pending || busy) return;
-  if (error) {
-    syncMessage('Connexion à la base indisponible. Nouvelle tentative automatique.');
+  if (!validLink || busy || pending) return;
+  let data;
+  try {
+    data = await budgetRequest('mon_budget_lire_lien');
+  } catch {
+    if (epoch === generation && !pending && !busy) syncMessage('Connexion indisponible. Nouvelle tentative automatique.');
     return;
   }
+  if (epoch !== generation || pending || busy) return;
   if (!data) {
+    app.querySelector('dialog[open]')?.close();
     app.hidden = true;
-    syncMessage('Ce compte n’a pas accès au budget partagé.');
+    document.getElementById('view').replaceChildren();
+    db = normalizeData(clone(DEFAULT_DATA));
+    revision = null;
+    syncMessage('Ce lien d’accès est invalide ou a été désactivé.');
     return;
   }
   if (revision === null || data.revision > revision) {
@@ -552,7 +560,7 @@ async function refreshSharedBudget(epoch=generation) {
 }
 
 function save(message='Enregistré') {
-  if (!account || revision === null || pending || busy) return false;
+  if (!validLink || revision === null || pending || busy) return false;
   pending = {payload:clone(db), version:revision, message};
   pushSharedBudget();
   return true;
@@ -564,12 +572,11 @@ async function pushSharedBudget() {
   syncMessage('Enregistrement du budget partagé…');
   const epoch = generation;
   try {
-    const {data, error} = await cloud.rpc('mon_budget_enregistrer', {
+    const data = await budgetRequest('mon_budget_ecrire_lien', {
       p_revision:pending.version,
       p_payload:pending.payload,
     });
     if (epoch !== generation) return;
-    if (error) throw error;
     if (data === null) {
       conflict = true;
       syncMessage('Une modification a déjà été publiée. Recharge la dernière version, puis ressaisis ta modification.');
@@ -591,52 +598,10 @@ async function pushSharedBudget() {
   }
 }
 
-function applySession(session) {
-  const id = session?.user?.id ?? null;
-  if (id === account) return;
-  generation++;
-  account = id;
-  revision = null;
-  pending = null;
-  busy = false;
-  conflict = false;
-  app.hidden = true;
-  app.querySelector('dialog[open]')?.close();
-  db = normalizeData(clone(DEFAULT_DATA));
-  tab = 'Tableau de bord';
-  document.getElementById('view').replaceChildren();
-  login.hidden = !!id;
-  signOut.hidden = !id;
-  updateCloudControls();
-  if (id) {
-    syncMessage('Chargement du budget partagé…');
-    void refreshSharedBudget();
-  } else syncMessage('Connecte-toi pour ouvrir le budget partagé.');
-}
-login.addEventListener('submit',async event=>{
-  event.preventDefault();
-  if (!cloud) return;
-  const values = new FormData(login);
-  const button = login.querySelector('button');
-  button.disabled = true;
-  try {
-    const {error} = await cloud.auth.signInWithPassword({email:String(values.get('email')).trim(),password:values.get('password')});
-    if (error) syncMessage('Connexion refusée. Vérifie tes identifiants.');
-    else login.reset();
-  } catch {
-    syncMessage('Connexion indisponible. Réessaie dans un instant.');
-  } finally {
-    button.disabled = false;
-  }
-});
-signOut.addEventListener('click',async ()=>{
-  if (pending && !confirm('Quitter malgré la modification dont l’enregistrement reste à confirmer ?')) return;
-  const {error} = await cloud.auth.signOut({scope:'local'});
-  if (error) syncMessage('La déconnexion a échoué. Réessaie.');
-});
 retry.addEventListener('click',pushSharedBudget);
 reload.addEventListener('click',()=>{
   if (!confirm('Recharger la version en ligne et abandonner la modification locale ?')) return;
+  generation++;
   pending = null;
   conflict = false;
   app.hidden = true;
@@ -650,16 +615,15 @@ window.addEventListener('beforeunload',event=>{
     event.returnValue = '';
   }
 });
-if (cloud) {
-  cloud.auth.onAuthStateChange((_event,session)=>setTimeout(()=>applySession(session),0));
-  syncMessage('Connecte-toi pour ouvrir le budget partagé.');
+if (validLink) {
+  syncMessage('Chargement du budget partagé…');
+  void refreshSharedBudget();
   setInterval(()=>{if (!document.hidden) void refreshSharedBudget();},5000);
   document.addEventListener('visibilitychange',()=>{if (!document.hidden) void refreshSharedBudget();});
 } else {
-  login.hidden = true;
-  syncMessage('Le service de connexion est indisponible. Recharge la page.');
+  syncMessage('Ouvre le lien privé qui t’a été communiqué pour accéder au budget.');
 }
-
+window.addEventListener('hashchange',()=>location.reload());
 </script>
 </body>
 </html>
