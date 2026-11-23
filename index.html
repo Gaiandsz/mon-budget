@@ -114,6 +114,64 @@ input,select{font-size:16px}
 .cycle-check{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 0;border-top:1px solid #e1ebe4;cursor:pointer}
 .cycle-check input{width:20px;height:20px;margin:0;accent-color:#21634a}
 .cycle-check:has(input:checked) strong{color:#526e62;text-decoration:line-through}
+
+/* Douceur rétro — palette, surfaces et contrôles */
+:root {
+  --bg:#f8f0dd; --surface:#fff9eb; --sub:#f2e4c7; --ink:#482b1c;
+  --muted:#715741; --line:#dfcba7; --forest:#2f6a4a; --primary:#b84519;
+  --accent:#793b26; --amber:#845714; --red:#963623;
+  --ochre:#daa442; --blue:#4f8fbf; --peach:#ebb7a1;
+}
+body,header {background:var(--bg)}
+body {font-family:ui-rounded,"Avenir Next Rounded","Trebuchet MS",system-ui,sans-serif}
+.brand .mark {background:var(--peach);color:var(--ink);border-radius:50%}
+h2,h3,.brand,.hero-amount,.cycle-title {font-weight:800;letter-spacing:-.035em}
+.panel,.plan-card,.entry,.budget-card,.metrics button,.cloud-panel,.quick-entry,#expense-dialog {
+  border-color:var(--line);border-radius:32px;background:var(--surface);color:var(--ink)
+}
+.cloud-panel,.quick-entry {background:var(--sub)}
+.cloud-panel p,.day-control,.period-picker,.salary-panel summary,.quick-entry small,
+.budget-card small,.caption,.entry>div>span:first-child,.debt-compact summary small,
+.cycle-check small,.cycle-check:has(input:checked) strong,th,footer {color:var(--muted)}
+.hero,.debt-overview {background:var(--primary);border-radius:44px;color:#fff9eb;padding:clamp(21px,5vw,32px);box-shadow:none}
+.hero .space,.hero .cycle-title {color:#fff9eb}
+.hero .bar {background:#8b3216}.hero .bar>div {background:#f2d395}
+.bar {background:var(--sub)}.bar>div {background:var(--forest)}.bar>div.over {background:var(--red)}
+.metrics button:nth-child(4n+1),.quick-tile:nth-child(4n+1) {background:var(--ochre);color:#382315;border-color:transparent}
+.metrics button:nth-child(4n+2),.quick-tile:nth-child(4n+2) {background:var(--forest);color:#fff9eb;border-color:transparent}
+.metrics button:nth-child(4n+3),.quick-tile:nth-child(4n+3) {background:var(--peach);color:#402417;border-color:transparent}
+.metrics button:nth-child(4n),.quick-tile:nth-child(4n) {background:#c1dbe9;color:#193b50;border-color:transparent}
+.metrics small,.quick-tile strong {color:inherit}
+.metrics button {padding:15px 18px}.quick-tile {border-radius:24px}
+button,button.small,.pill,.expense-chips span {border-radius:999px}
+button,button.small {min-height:44px}
+button {background:var(--sub);color:var(--accent)}
+button.primary {background:var(--primary);color:#fff}
+button.ghost {background:var(--surface);border-color:var(--accent);color:var(--accent)}
+button.danger,.pill.red {background:#f4d9ca;color:#842f21}
+.pill,.tip,.success {color:#214e36}.pill,.tip {background:#e2ebda}
+.pill.blue {background:#d8e8f1;color:#234b62}.pill.amber,.notice {background:#f6e7bf;color:#69440f}
+.summary,.inline-form,.budget-icon,.debt-next {background:var(--sub);border-color:var(--line);border-radius:20px}
+.budget-plus {background:var(--peach);color:var(--accent)}
+.quick-budget:hover,.quick-budget:focus-visible {background:#fbefd9;border-color:var(--accent)}
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),select,textarea {
+  border-radius:20px;background:#fffcf4;border-color:#cbb38e;color:var(--ink);min-height:44px
+}
+.period-picker input {min-height:44px}
+.day-control input,.cycle-check input,.category-choices input {accent-color:var(--forest)}
+.cycle-check,.debt-body,.forecast-row,.installment,.edit-row,td,th {border-color:var(--line)}
+.expense-chips span,.category-choices label {border-color:var(--line)}
+.expense-chips input:checked+span,.category-choices label:has(:checked) {background:#c6dfed;border-color:#396e92}
+:where(button,summary,input,select,textarea):focus-visible,.expense-chips input:focus-visible+span {
+  outline:3px solid #32668a;outline-offset:2px
+}
+details>summary {min-height:44px;align-content:center}
+#tabs {width:min(calc(100% - 16px),704px);bottom:calc(6px + env(safe-area-inset-bottom));background:var(--accent);
+  border:0;border-radius:32px;padding:6px;box-shadow:0 3px 12px #482b1c24}
+#tabs button {background:transparent;color:#fff2da;border-radius:24px}
+#tabs button.active {background:var(--bg);color:var(--accent)}
+#toast {background:var(--accent);color:#fff9eb;border-radius:20px}
+#expense-dialog::backdrop {background:#38251770}
 </style>
 </head>
 <body>
