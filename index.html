@@ -187,11 +187,17 @@ details>summary {min-height:44px;align-content:center}
 #launch-screen strong{margin-top:18px;font-size:38px;letter-spacing:-2px}
 @keyframes sapologie{0%{opacity:0;transform:translate(-48px,65px) rotate(-48deg) scale(.67)}55%{opacity:1;transform:translateY(-14px) rotate(10deg)}80%{transform:translateY(4px) rotate(-4deg)}100%{transform:none}}
 @media(prefers-reduced-motion:reduce){#launch-screen .coin{animation:none}#launch-screen{transition:none}}
-#launch-sound{margin-top:12px;background:#fff9eb;color:#793b26}
+#launch-screen.watching{background:#251810;display:block}
+#launch-screen.watching .coin{position:absolute;inset:0;width:100%;height:100%;border:0;border-radius:0;box-shadow:none;animation:none;background:#251810}
+#launch-screen.watching img,#launch-screen.watching strong{display:none}
+#launch-screen.watching video{object-fit:contain}
+#launch-screen.watching button{position:absolute;z-index:1;bottom:calc(16px + env(safe-area-inset-bottom));margin:0}
+#launch-skip{right:16px;background:#fff9eb;color:#793b26}
+#launch-sound{left:16px;margin-top:12px;background:#fff9eb;color:#793b26}
 </style>
 </head>
 <body>
-<div hidden aria-label="Lancement de Mon Budget" id="launch-screen"><div class="coin"><img src="./apple-touch-icon.png" alt=""><video hidden playsinline preload="metadata" src="./9fa8087f4fc34ec3bc20908f44ad8461.MOV"></video></div><strong>Mon Budget</strong><button type="button" id="launch-sound" hidden>Activer le son</button></div>
+<div hidden aria-label="Lancement de Mon Budget" id="launch-screen"><div class="coin"><img src="./apple-touch-icon.png" alt=""><video hidden playsinline preload="metadata" src="./9fa8087f4fc34ec3bc20908f44ad8461.MOV"></video></div><strong>Mon Budget</strong><button type="button" id="launch-sound" hidden>Activer le son</button><button type="button" id="launch-skip" hidden>Passer</button></div>
 <section class="cloud-panel" aria-label="Accès au budget partagé">
   <strong>Mon Budget partagé</strong>
   <p id="cloud-status" role="status">Chargement…</p>
@@ -915,14 +921,16 @@ function resetLaunch() {
   launchVideo.pause();
   launchVideo.hidden = true;
   launchScreen.hidden = true;
-  launchScreen.classList.remove('leaving');
+  launchScreen.classList.remove('leaving','watching');
+  document.getElementById('launch-skip').hidden=true;
+  launchVideo.onended=null;
 }
 function playLaunch() {
   if (document.hidden || !launchScreen.hidden) return;
   const generation = ++launchGeneration;
   launchScreen.hidden = false;
   const finish = () => {
-    if (generation !== launchGeneration) return;
+    if (generation !== launchGeneration || launchScreen.classList.contains('leaving')) return;
     launchScreen.classList.add('leaving');
     launchTimers.push(setTimeout(resetLaunch,350));
   };
@@ -930,6 +938,8 @@ function playLaunch() {
     launchTimers.push(setTimeout(finish,600));
     return;
   }
+  launchVideo.onended=finish;
+  document.getElementById('launch-skip').onclick=finish;
   launchTimers.push(setTimeout(async ()=>{
     if (generation !== launchGeneration) return;
     launchVideo.currentTime = 0;
@@ -945,7 +955,8 @@ function playLaunch() {
     }
     if (generation === launchGeneration && !launchVideo.paused) {
       clearTimeout(watchdog);
-      launchTimers.push(setTimeout(finish,3600));
+      launchScreen.classList.add('watching');
+      document.getElementById('launch-skip').hidden=false;
     }
   },1650));
   const watchdog=setTimeout(finish,8500);
