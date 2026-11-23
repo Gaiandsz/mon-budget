@@ -102,6 +102,17 @@ input,select{font-size:16px}
 .debt-overview strong{display:block;font-size:1.8rem}.debt-next{background:#eff6f1;border-radius:12px;padding:12px;margin-top:12px}
 .debt-next .row{margin-top:8px}.debt-fold{margin-top:12px}.debt-fold summary{cursor:pointer;font-weight:650}
 .debt-amounts{display:flex;flex-wrap:wrap;gap:8px 16px}.debt-amounts span{display:grid;gap:2px}
+/* Dettes et paiements du cycle */
+.debt-compact{padding:0;overflow:hidden;margin:0 0 8px}
+.debt-compact>summary{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:14px;list-style:none}
+.debt-compact>summary::-webkit-details-marker{display:none}
+.debt-compact summary small,.cycle-check small{display:block;color:#526e62;font-weight:400}
+.debt-compact summary b,.cycle-check strong{white-space:nowrap;font-variant-numeric:tabular-nums}
+.debt-compact[open]>summary .debt-chevron{transform:rotate(90deg)}
+.debt-body{border-top:1px solid #e1ebe4;padding:12px 14px}
+.cycle-check{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 0;border-top:1px solid #e1ebe4;cursor:pointer}
+.cycle-check input{width:20px;height:20px;margin:0;accent-color:#21634a}
+.cycle-check:has(input:checked) strong{color:#526e62;text-decoration:line-through}
 </style>
 </head>
 <body>
@@ -212,7 +223,13 @@ function paymentInline(p,pm){if(!payForm||payForm.planId!==p.id||payForm.payment
 function renderPlanCard(p){const pTotal=cents(p.amount),paid=p.kind==='paiement'?p.payments.reduce((s,pm)=>s+cents(installmentPaid(p,pm)),0):p.payments.filter(pm=>pm.reserved).reduce((s,pm)=>s+cents(pm.amount),0),due=money(p.payments.reduce((s,pm)=>s+(p.kind==='paiement'?cents(remaining(p,pm)):pm.reserved?0:cents(pm.amount)),0));const isDebt=p.kind==='paiement';
 const next=isDebt?p.payments.filter(pm=>remaining(p,pm)>0).sort((a,b)=>a.month.localeCompare(b.month))[0]:null;
 const paying=p.payments.some(pm=>payForm?.paymentId===pm.id&&payForm?.planId===p.id);
-return `<article class="plan-card"><div class="plan-header"><strong>${esc(p.name)}</strong><span class="pill ${p.kind==='provision'?'blue':''}">${p.kind==='paiement'?'Paiement échelonné':'Provision prévisionnelle'}</span><span class="muted">${p.payments.length} mois</span><span class="plan-amount">${euro(p.amount)}</span></div><div class="space" style="margin:10px 0"><span class="muted">${p.kind==='paiement'?'Montant réellement payé':'Montant déclaré réservé'} : <strong>${euro(money(paid))}</strong></span><span class="muted">Reste : <strong>${euro(due)}</strong></span></div>${progress(money(paid),money(pTotal))}<div class="row gap-top"><button class="ghost small" data-action="edit-plan" data-id="${esc(p.id)}">Modifier les mensualités</button><button class="danger small" data-action="remove-plan" data-id="${esc(p.id)}">Supprimer</button></div>${next?`<div class="debt-next"><div class="space"><span>Prochaine mensualité · ${esc(monthLabel(next.month))}</span><strong>${euro(remaining(p,next))}</strong></div><div class="row"><button class="primary small" data-action="open-pay" data-plan="${esc(p.id)}" data-payment="${esc(next.id)}">Enregistrer un paiement</button></div></div>`:""}<details class="debt-fold" ${paying?"open":""}><summary>Voir l’échéancier</summary>${p.payments.map(pm=>{const linked=linkedTransactions(p.id,pm.id),left=remaining(p,pm);return `<div class="installment"><div><strong>${esc(monthLabel(pm.month))}</strong><div class="tiny">${esc(pm.month)}</div></div><div class="installment-main"><div class="debt-amounts"><span><small>Prévu</small><strong>${euro(pm.amount)}</strong></span>${isDebt?`<span><small>Payé</small><strong>${euro(installmentPaid(p,pm))}</strong></span><span><small>Restant</small><strong>${euro(left)}</strong></span>`:`<small>${pm.reserved?"Montant déclaré de côté":"Aucune réserve déclarée"}</small>`}</div></div><div>${paymentStatus(p,pm)}</div><div class="installment-actions">${p.kind==='paiement'?`<button class="small ghost" data-action="open-pay" data-plan="${esc(p.id)}" data-payment="${esc(pm.id)}">+ ${left?'Payer':'Débit'}</button>${linked.map(t=>`<button class="small danger" title="Retirer le lien sans effacer la dépense réelle" data-action="unlink-tx" data-id="${esc(t.id)}">Délier ${euro(t.amount)}</button>`).join('')}`:`<button class="small ${pm.reserved?'ghost':'primary'}" data-action="reserve" data-plan="${esc(p.id)}" data-payment="${esc(pm.id)}">${pm.reserved?'Annuler la réserve':'Marquer réservé'}</button>`}</div></div>${paymentInline(p,pm)}`}).join('')}</details></article>`}
+return `<details class="plan-card debt-compact" ${paying?'open':''}><summary>
+<span><strong>${esc(p.name)}</strong><small>${next?'Prochaine échéance · '+esc(monthLabel(next.month))+' · '+euro(remaining(p,next)):isDebt?'Remboursée':'Provision'}</small></span>
+<b>${euro(due)}</b><span class="debt-chevron" aria-hidden="true">›</span></summary>
+<div class="debt-body"><div class="space"><span>${isDebt?'Payé':'Réservé'}</span><strong>${euro(money(paid))} / ${euro(p.amount)}</strong></div>
+${progress(money(paid),money(pTotal))}
+<div class="row gap-top"><button class="ghost small" data-action="edit-plan" data-id="${esc(p.id)}">Modifier l’échéancier</button><button class="danger small" data-action="remove-plan" data-id="${esc(p.id)}">Supprimer</button></div>
+<h3>Mensualités</h3>${p.payments.map(pm=>{const linked=linkedTransactions(p.id,pm.id),left=remaining(p,pm);return `<div class="installment"><div><strong>${esc(monthLabel(pm.month))}</strong><div class="tiny">${esc(pm.month)}</div></div><div class="installment-main"><div class="debt-amounts"><span><small>Prévu</small><strong>${euro(pm.amount)}</strong></span>${isDebt?`<span><small>Payé</small><strong>${euro(installmentPaid(p,pm))}</strong></span><span><small>Restant</small><strong>${euro(left)}</strong></span>`:`<small>${pm.reserved?"Montant déclaré de côté":"Aucune réserve déclarée"}</small>`}</div></div><div>${paymentStatus(p,pm)}</div><div class="installment-actions">${p.kind==='paiement'?`<button class="small ghost" data-action="open-pay" data-plan="${esc(p.id)}" data-payment="${esc(pm.id)}">Corriger le paiement</button>${linked.map(t=>`<button class="small danger" title="Retirer le lien sans effacer la dépense réelle" data-action="unlink-tx" data-id="${esc(t.id)}">Délier ${euro(t.amount)}</button>`).join('')}`:`<button class="small ${pm.reserved?'ghost':'primary'}" data-action="reserve" data-plan="${esc(p.id)}" data-payment="${esc(pm.id)}">${pm.reserved?'Annuler la réserve':'Marquer réservé'}</button>`}</div></div>${paymentInline(p,pm)}`}).join('')}</div></details>`}
 function schedulesPage(){if(!draft)makeDraft();const paymentPlans=db.plans.filter(p=>p.kind==='paiement'),provisionPlans=db.plans.filter(p=>p.kind==='provision');return `<div class="space"><h2>Dettes et échéanciers</h2><span class="muted">${db.plans.length} projet(s) enregistré(s)</span></div><div class="debt-overview"><span>Reste à rembourser</span><strong>${euro(money(paymentPlans.reduce((sum,p)=>sum+p.payments.reduce((subtotal,pm)=>subtotal+cents(remaining(p,pm)),0),0)))}</strong></div><div class="tip"><strong>Deux suivis distincts :</strong> un paiement échelonné représente de vrais débits bancaires (enregistrés uniquement quand vous les confirmez) ; une provision sert à planifier de l'argent à mettre de côté, sans diminuer automatiquement votre solde bancaire.</div><details class="panel plan-editor" ${editPlanId || keepPlanOpen?'open':''}><summary>${editPlanId?'Modifier la dette':'+ Ajouter un échéancier'}</summary>${renderDraft()}</details><section class="panel"><h3>Paiements en plusieurs fois (${paymentPlans.length})</h3>${paymentPlans.map(renderPlanCard).join('')||'<div class="empty">Aucun achat à échéances pour le moment.</div>'}</section><section class="panel"><h3>Provisions et épargne anticipée (${provisionPlans.length})</h3>${provisionPlans.map(renderPlanCard).join('')||'<div class="empty">Aucune provision planifiée.</div>'}</section>`}
 function savePlan(){const total=cents(draft.amount),sum=draft.payments.reduce((s,p)=>s+cents(p.amount),0);if(!draft.name.trim()||!monthShift(draft.start,0)||total<=0||draft.count<1||draft.count>60||sum!==total||draft.payments.some(p=>!Number.isFinite(p.amount)||p.amount<0))return alert('Vérifiez le nom, les dates et la somme des mensualités.');const old=db.plans.find(p=>p.id===editPlanId);if(old){const retained=new Set(draft.payments.map(x=>x.id)),lost=old.payments.filter(pm=>!retained.has(pm.id));if(lost.some(pm=>linkedTransactions(old.id,pm.id).length))return alert('Impossible de supprimer une mensualité liée à un paiement réel. Déliez d’abord ce paiement.');if(old.kind!==draft.kind&&old.payments.some(pm=>linkedTransactions(old.id,pm.id).length))return alert('Déliez les dépenses réelles avant de transformer ce plan en provision.')}const id=old?.id||uid();const payments=draft.payments.map((pm,i)=>({id:pm.id||uid(),month:monthShift(draft.start,i),amount:money(cents(pm.amount)),reserved:!!pm.reserved}));const item={id,name:draft.name.trim(),kind:draft.kind,category:draft.category,amount:money(total),payments};if(old)Object.assign(old,item);else db.plans.push(item);makeDraft();keepPlanOpen=false;payForm=null;save(old?'Échéancier modifié':'Échéancier créé')}
 function savePayment(form){const f=new FormData(form),p=db.plans.find(x=>x.id===form.dataset.plan),pm=p?.payments.find(x=>x.id===form.dataset.payment);if(!p||!pm||p.kind!=='paiement')return;const existingId=f.get('existing');if(existingId){const tx=db.transactions.find(t=>t.id===existingId);if(!tx||tx.type!=='depense'||tx.planId)return alert('Cette transaction ne peut pas être liée.');tx.planId=p.id;tx.installmentId=pm.id}else{const date=normDate(f.get('date')),amount=amountFrom(f.get('amount'));if(!date||!Number.isFinite(amount)||cents(amount)<=0)return alert('Renseignez une date et un montant positif.');if(cents(amount)>cents(remaining(p,pm))&&!confirm('Ce débit dépasse la mensualité prévue. Continuer ?'))return;db.transactions.push({id:uid(),date,label:p.name,amount:money(cents(amount)),type:'depense',category:p.category||'Autres',planId:p.id,installmentId:pm.id})}payForm=null;save('Paiement lié à l’échéancier et au registre des transactions')}
@@ -424,6 +441,57 @@ function saveQuickExpense(form, fields) {
   form.closest('dialog').close();
   return save('Dépense enregistrée');
 }
+function cyclePaymentRows() {
+  const month = budgetMonth(selectedMonth);
+  const charges = db.subscriptions.filter(c=>c.start<=month && (!c.end || c.end>=month));
+  const rows = charges.filter(c=>cents(c.amount)>0).map(charge=>({
+    charge, name:charge.name, amount:charge.amount,
+    left:Array.isArray(charge.checkedMonths)&&charge.checkedMonths.includes(month)?0:charge.amount
+  }));
+  for (const plan of db.plans.filter(p=>p.kind==='paiement')) {
+    for (const payment of plan.payments.filter(pm=>pm.month===month && cents(pm.amount)>0)) {
+      rows.push({plan,payment,name:plan.name,amount:payment.amount,left:remaining(plan,payment),
+        checkedDebit:linkedTransactions(plan.id,payment.id).find(t=>t.cycleChecklist===true)});
+    }
+  }
+  return rows;
+}
+
+function cyclePaymentPanel() {
+  const rows = cyclePaymentRows();
+  const left = rows.reduce((sum,row)=>sum+cents(row.left),0);
+  return `<section class="panel"><div class="space"><h3>À payer ce cycle</h3><strong>${euro(money(left))}</strong></div>
+  ${rows.map((row,index)=>`<label class="cycle-check"><input type="checkbox" data-cycle-payment="${index}" ${row.left?'':'checked'}
+    ${row.plan&&!row.left&&!row.checkedDebit?'disabled':''}>
+    <span><b>${esc(row.name)}</b><small>${row.charge?'Charge fixe':'Mensualité'}${row.left?'':' · Payé'}</small></span>
+    <strong>${euro(row.left || row.amount)}</strong></label>`).join('') || '<p class="muted">Aucun paiement prévu pour ce cycle.</p>'}</section>`;
+}
+
+function updateCyclePayment(index, checked) {
+  if (!validLink || revision===null || pending || busy) return;
+  const row = cyclePaymentRows()[index];
+  if (!row) return;
+  if (row.charge) {
+    const month = budgetMonth(selectedMonth);
+    const months = Array.isArray(row.charge.checkedMonths)?row.charge.checkedMonths:[];
+    row.charge.checkedMonths = [...months.filter(value=>value!==month), ...(checked?[month]:[])];
+  } else if (checked && row.left) {
+    if (row.checkedDebit) row.checkedDebit.amount = money(cents(row.checkedDebit.amount)+cents(row.left));
+    else db.transactions.push({
+      id:uid(),date:today(),label:row.name,type:'depense',category:row.plan.category || 'Autres',
+      amount:row.left,planId:row.plan.id,installmentId:row.payment.id,cycleChecklist:true
+    });
+  } else if (!checked && row.checkedDebit) {
+    db.transactions = db.transactions.filter(t=>t.id!==row.checkedDebit.id);
+  } else return;
+  save(checked?'Paiement coché':'Paiement décoché');
+}
+
+document.addEventListener('change',event=>{
+  const index = event.target.dataset.cyclePayment;
+  if (index!==undefined) updateCyclePayment(Number(index),event.target.checked);
+});
+
 function monthlyDashboard() {
   const period = cycle(selectedMonth), expenses = variableExpenses(period), p = monthBudget(selectedMonth,period,expenses);
   const date = today()>period.end ? period.end : today();
@@ -450,7 +518,7 @@ function monthlyDashboard() {
   ${progress(elapsed,period.days)}</section>
   <div class="cycle-switch"><button class="ghost small" type="button" data-action="show-cycle" data-value="${current?monthShift(activeKey,1):activeKey}">${current?'Prévoir '+esc(monthLabel(budgetMonth(monthShift(activeKey,1))))+' →':'← Revenir au cycle en cours'}</button></div>
   ${quickEntry}
-  ${salaryControl}<div class="metrics">${[['Revenus',p.income,'Revenus'],['Charges fixes',p.fixed,'Charges fixes'],['Dettes',p.debt,'Dettes'],['Budgets prévus',p.variable,'Budgets']].map(([label,value,page])=>`<button data-action="tab" data-value="${page}"><small>${label}</small>${amountCell(value)}</button>`).join('')}</div>
+  ${salaryControl}${cyclePaymentPanel()}<div class="metrics">${[['Revenus',p.income,'Revenus'],['Charges fixes',p.fixed,'Charges fixes'],['Dettes',p.debt,'Dettes'],['Budgets prévus',p.variable,'Budgets']].map(([label,value,page])=>`<button data-action="tab" data-value="${page}"><small>${label}</small>${amountCell(value)}</button>`).join('')}</div>
   <div class="space budget-heading"><h3>${current?'Disponible aujourd’hui':elapsed===0?'Budgets du prochain cycle':'Budgets en fin de cycle'}</h3><button class="ghost small" data-action="tab" data-value="Budgets">Gérer</button></div>
   <div class="budget-stack" id="dashboard-budgets">${budgetCards(period,expenses,date,true)}</div><dialog id="expense-dialog" aria-labelledby="quick-expense-title"></dialog>
   <label class="day-control">Voir le cumul au <output id="day-label">${elapsed?shortDate(date):'début du cycle'}</output><input aria-label="Jour du cycle" id="cycle-day" type="range" min="1" max="${period.days}" value="${Math.max(1,elapsed)}"></label>
