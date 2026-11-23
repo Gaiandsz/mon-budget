@@ -179,9 +179,18 @@ details>summary {min-height:44px;align-content:center}
 .overview-track{display:flex;align-items:flex-start;gap:12px;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;scrollbar-width:none;overscroll-behavior-x:contain}
 .overview-track::-webkit-scrollbar{display:none}
 .overview-track>section{box-sizing:border-box;flex:0 0 100%;min-width:0;margin:0;scroll-snap-align:start}
+
+#launch-screen{position:fixed;inset:0;z-index:100;background:#b84519;color:#fff9eb;display:grid;place-content:center;justify-items:center;pointer-events:auto;transition:opacity .35s}
+#launch-screen.leaving{opacity:0;pointer-events:none}
+#launch-screen .coin{width:146px;height:146px;position:relative;overflow:hidden;border:7px solid #daa442;border-radius:50%;background:#793b26;box-shadow:0 7px #793b26;animation:sapologie .85s both}
+#launch-screen img,#launch-screen video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+#launch-screen strong{margin-top:18px;font-size:38px;letter-spacing:-2px}
+@keyframes sapologie{0%{opacity:0;transform:translate(-48px,65px) rotate(-48deg) scale(.67)}55%{opacity:1;transform:translateY(-14px) rotate(10deg)}80%{transform:translateY(4px) rotate(-4deg)}100%{transform:none}}
+@media(prefers-reduced-motion:reduce){#launch-screen .coin{animation:none}#launch-screen{transition:none}}
 </style>
 </head>
 <body>
+<div hidden aria-hidden="true" id="launch-screen"><div class="coin"><img src="./apple-touch-icon.png" alt=""><video hidden muted playsinline preload="none"></video></div><strong>Mon Budget</strong></div>
 <section class="cloud-panel" aria-label="Accès au budget partagé">
   <strong>Mon Budget partagé</strong>
   <p id="cloud-status" role="status">Chargement…</p>
@@ -889,6 +898,44 @@ updateButton.addEventListener('click',()=>openAppUpdate(true));
 window.addEventListener('pageshow',checkAppUpdate);
 document.addEventListener('visibilitychange',()=>{if (!document.hidden) void checkAppUpdate();});
 
+const launchScreen = document.getElementById('launch-screen');
+const launchVideo = launchScreen.querySelector('video');
+let launchTimers = [], launchGeneration = 0;
+function resetLaunch() {
+  launchGeneration++;
+  launchTimers.forEach(clearTimeout);
+  launchTimers = [];
+  launchVideo.pause();
+  launchVideo.hidden = true;
+  launchScreen.hidden = true;
+  launchScreen.classList.remove('leaving');
+}
+function playLaunch() {
+  if (document.hidden || !launchScreen.hidden) return;
+  const generation = ++launchGeneration;
+  launchScreen.hidden = false;
+  const finish = () => {
+    if (generation !== launchGeneration) return;
+    launchScreen.classList.add('leaving');
+    launchTimers.push(setTimeout(resetLaunch,350));
+  };
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    launchTimers.push(setTimeout(finish,600));
+    return;
+  }
+  launchTimers.push(setTimeout(()=>{
+    if (!launchVideo.getAttribute('src')) return;
+    launchVideo.currentTime = 0;
+    launchVideo.play().then(()=>{
+      if (generation === launchGeneration) launchVideo.hidden = false;
+    }).catch(()=>{});
+  },1500));
+  launchTimers.push(setTimeout(finish,launchVideo.getAttribute('src')?4200:3100));
+}
+document.addEventListener('visibilitychange',()=>document.hidden?resetLaunch():playLaunch());
+window.addEventListener('pagehide',resetLaunch);
+window.addEventListener('pageshow',playLaunch);
+playLaunch();
 window.addEventListener('hashchange',()=>location.reload());
 </script>
 </body>
