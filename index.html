@@ -178,7 +178,7 @@ details>summary {min-height:44px;align-content:center}
 <section class="cloud-panel" aria-label="Accès au budget partagé">
   <strong>Mon Budget partagé</strong>
   <p id="cloud-status" role="status">Chargement…</p>
-  <div class="row"><button type="button" class="primary small" id="cloud-retry" hidden>Réessayer</button><button type="button" class="ghost small" id="cloud-reload" hidden>Recharger la version en ligne</button></div>
+  <div class="row"><button type="button" class="ghost small" id="app-update" hidden>Ouvrir la mise à jour</button><button type="button" class="primary small" id="cloud-retry" hidden>Réessayer</button><button type="button" class="ghost small" id="cloud-reload" hidden>Recharger la version en ligne</button></div>
 </section>
 <div id="cloud-app" hidden>
 <header><div class="heading"><div class="brand"><span class="mark" aria-hidden="true">€</span> Mon Budget</div><button class="ghost" data-action="tab" data-value="Réglages" aria-label="Réglages">⚙</button></div></header>
@@ -804,6 +804,54 @@ if (validLink) {
 } else {
   syncMessage('Ouvre le lien privé qui t’a été communiqué pour accéder au budget.');
 }
+
+// La synchronisation du budget et la mise à jour du fichier HTML sont indépendantes.
+const updateButton = document.getElementById('app-update');
+let nextAppUrl = null;
+let checkingApp = false;
+let lastAppCheck = 0;
+let editedForm = null;
+app.addEventListener('input', event => {
+  if (event.target.form) editedForm = event.target.form;
+});
+function openAppUpdate(explicit) {
+  if (!nextAppUrl || busy || pending || conflict || document.hidden) return;
+  const editing = editedForm?.isConnected || app.querySelector('dialog[open]') ||
+    document.activeElement?.closest('#cloud-app form');
+  if (editing && (!explicit || !confirm('Quitter la saisie en cours pour ouvrir la mise à jour ?'))) return;
+  if (!explicit && tab !== 'Tableau de bord') return;
+  const target = new URL(nextAppUrl);
+  target.hash = location.hash;
+  location.replace(target.href);
+}
+async function checkAppUpdate() {
+  if (nextAppUrl) return openAppUpdate(false);
+  if (checkingApp || document.hidden || Date.now()-lastAppCheck<15000) return;
+  checkingApp = true;
+  lastAppCheck = Date.now();
+  try {
+    const address = new URL(location.href);
+    address.hash = '';
+    address.searchParams.set('version', String(lastAppCheck));
+    const response = await fetch(address.href,{cache:'no-store',referrerPolicy:'no-referrer'});
+    if (!response.ok) return;
+    const html = await response.text();
+    const code = html.match(/<script>([\s\S]*?)<\/script>/i);
+    const style = html.match(/<style>([\s\S]*?)<\/style>/i);
+    if (!code || !style || !html.includes('id="cloud-app"')) return;
+    const normalize = value => value.replace(/\r\n?/g,'\n');
+    if (normalize(code[1])===normalize(document.querySelector('script').textContent) &&
+        normalize(style[1])===normalize(document.querySelector('style').textContent)) return;
+    nextAppUrl = address.href;
+    updateButton.hidden = false;
+    openAppUpdate(false);
+  } catch { /* Réessayer à la prochaine ouverture en ligne. */ }
+  finally { checkingApp = false; }
+}
+updateButton.addEventListener('click',()=>openAppUpdate(true));
+window.addEventListener('pageshow',checkAppUpdate);
+document.addEventListener('visibilitychange',()=>{if (!document.hidden) void checkAppUpdate();});
+
 window.addEventListener('hashchange',()=>location.reload());
 </script>
 </body>
