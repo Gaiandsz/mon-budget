@@ -187,8 +187,8 @@ details>summary {min-height:44px;align-content:center}
 #launch-screen strong{margin-top:18px;font-size:38px;letter-spacing:-2px}
 @keyframes sapologie{0%{opacity:0;transform:translate(-48px,65px) rotate(-48deg) scale(.67)}55%{opacity:1;transform:translateY(-14px) rotate(10deg)}80%{transform:translateY(4px) rotate(-4deg)}100%{transform:none}}
 @media(prefers-reduced-motion:reduce){#launch-screen .coin{animation:none}#launch-screen{transition:none}}
-#launch-screen.watching{background:#251810;display:block}
-#launch-screen.watching .coin{position:absolute;inset:0;width:100%;height:100%;border:0;border-radius:0;box-shadow:none;animation:none;background:#251810}
+#launch-screen.watching{background:var(--clip-tone,#b84519);display:block}
+#launch-screen.watching .coin{position:absolute;inset:0;width:100%;height:100%;border:0;border-radius:0;box-shadow:none;animation:none;background:var(--clip-tone,#b84519)}
 #launch-screen.watching img,#launch-screen.watching strong{display:none}
 #launch-screen.watching video{object-fit:contain}
 #launch-screen.watching button{position:absolute;z-index:1;bottom:calc(16px + env(safe-area-inset-bottom));margin:0}
@@ -907,6 +907,25 @@ document.addEventListener('visibilitychange',()=>{if (!document.hidden) void che
 
 const launchScreen = document.getElementById('launch-screen');
 const launchVideo = launchScreen.querySelector('video');
+const toneCanvas = document.createElement('canvas');
+toneCanvas.width = toneCanvas.height = 8;
+const toneContext = toneCanvas.getContext('2d',{willReadFrequently:true});
+function matchClipTone() {
+  if (!toneContext || launchVideo.readyState < 2 || !launchScreen.classList.contains('watching')) return;
+  try {
+    toneContext.drawImage(launchVideo,0,0,8,8);
+    const pixels = toneContext.getImageData(0,0,8,8).data;
+    const rgb = [0,0,0];
+    let count=0;
+    for (let i=0;i<64;i++) {
+      if (i>=8 && i<56 && i%8!==0 && i%8!==7) continue;
+      for (let c=0;c<3;c++) rgb[c]+=pixels[i*4+c];
+      count++;
+    }
+    launchScreen.style.setProperty('--clip-tone','rgb('+rgb.map(v=>Math.round(v/count)).join(',')+')');
+  } catch { launchVideo.removeEventListener('timeupdate',matchClipTone); }
+}
+launchVideo.addEventListener('timeupdate',matchClipTone);
 const soundButton = document.getElementById('launch-sound');
 soundButton.addEventListener('click',()=>{
   launchVideo.muted = false;
@@ -956,6 +975,7 @@ function playLaunch() {
     if (generation === launchGeneration && !launchVideo.paused) {
       clearTimeout(watchdog);
       launchScreen.classList.add('watching');
+      matchClipTone();
       document.getElementById('launch-skip').hidden=false;
     }
   },1650));
