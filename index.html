@@ -187,10 +187,11 @@ details>summary {min-height:44px;align-content:center}
 #launch-screen strong{margin-top:18px;font-size:38px;letter-spacing:-2px}
 @keyframes sapologie{0%{opacity:0;transform:translate(-48px,65px) rotate(-48deg) scale(.67)}55%{opacity:1;transform:translateY(-14px) rotate(10deg)}80%{transform:translateY(4px) rotate(-4deg)}100%{transform:none}}
 @media(prefers-reduced-motion:reduce){#launch-screen .coin{animation:none}#launch-screen{transition:none}}
+#launch-sound{margin-top:12px;background:#fff9eb;color:#793b26}
 </style>
 </head>
 <body>
-<div hidden aria-hidden="true" id="launch-screen"><div class="coin"><img src="./apple-touch-icon.png" alt=""><video hidden muted playsinline preload="none"></video></div><strong>Mon Budget</strong></div>
+<div hidden aria-label="Lancement de Mon Budget" id="launch-screen"><div class="coin"><img src="./apple-touch-icon.png" alt=""><video hidden playsinline preload="metadata" src="./9fa8087f4fc34ec3bc20908f44ad8461.MOV"></video></div><strong>Mon Budget</strong><button type="button" id="launch-sound" hidden>Activer le son</button></div>
 <section class="cloud-panel" aria-label="Accès au budget partagé">
   <strong>Mon Budget partagé</strong>
   <p id="cloud-status" role="status">Chargement…</p>
@@ -900,11 +901,17 @@ document.addEventListener('visibilitychange',()=>{if (!document.hidden) void che
 
 const launchScreen = document.getElementById('launch-screen');
 const launchVideo = launchScreen.querySelector('video');
+const soundButton = document.getElementById('launch-sound');
+soundButton.addEventListener('click',()=>{
+  launchVideo.muted = false;
+  launchVideo.play().then(()=>{soundButton.hidden=true;}).catch(()=>{launchVideo.muted=true;});
+});
 let launchTimers = [], launchGeneration = 0;
 function resetLaunch() {
   launchGeneration++;
   launchTimers.forEach(clearTimeout);
   launchTimers = [];
+  soundButton.hidden = true;
   launchVideo.pause();
   launchVideo.hidden = true;
   launchScreen.hidden = true;
@@ -923,14 +930,26 @@ function playLaunch() {
     launchTimers.push(setTimeout(finish,600));
     return;
   }
-  launchTimers.push(setTimeout(()=>{
-    if (!launchVideo.getAttribute('src')) return;
+  launchTimers.push(setTimeout(async ()=>{
+    if (generation !== launchGeneration) return;
     launchVideo.currentTime = 0;
-    launchVideo.play().then(()=>{
-      if (generation === launchGeneration) launchVideo.hidden = false;
-    }).catch(()=>{});
-  },1500));
-  launchTimers.push(setTimeout(finish,launchVideo.getAttribute('src')?4200:3100));
+    launchVideo.hidden = false;
+    launchVideo.muted = false;
+    try {
+      await launchVideo.play();
+    } catch {
+      if (generation !== launchGeneration) return;
+      launchVideo.muted = true;
+      soundButton.hidden = false;
+      try { await launchVideo.play(); } catch { launchVideo.hidden = true; }
+    }
+    if (generation === launchGeneration && !launchVideo.paused) {
+      clearTimeout(watchdog);
+      launchTimers.push(setTimeout(finish,3600));
+    }
+  },1650));
+  const watchdog=setTimeout(finish,8500);
+  launchTimers.push(watchdog);
 }
 document.addEventListener('visibilitychange',()=>document.hidden?resetLaunch():playLaunch());
 window.addEventListener('pagehide',resetLaunch);
