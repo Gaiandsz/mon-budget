@@ -194,6 +194,7 @@ details>summary {min-height:44px;align-content:center}
 #launch-screen.watching button{position:absolute;z-index:1;bottom:calc(16px + env(safe-area-inset-bottom));margin:0}
 #launch-skip{right:16px;background:#fff9eb;color:#793b26}
 #launch-sound{left:16px;margin-top:12px;background:#fff9eb;color:#793b26}
+.period-picker select{display:inline-block;width:auto;max-width:100%;font-size:16px;min-height:44px}
 </style>
 </head>
 <body>
@@ -301,7 +302,15 @@ function render() {
   if(tab==='Tableau de bord') bindOverview();
   if(tab==='Dettes') updateDraftTotals();
 }
-function monthPicker(){return `<label class="period-picker">Mois du budget <input id="month-filter" type="month" min="${firstBudgetMonth}" value="${esc(budgetMonth(selectedMonth))}"></label>`}
+function monthPicker() {
+  const selected = budgetMonth(selectedMonth);
+  const through = monthShift(selected, 12);
+  const options = [];
+  for (let m = firstBudgetMonth; m && m <= through; m = monthShift(m,1)) {
+    options.push(`<option value="${m}" ${m===selected?'selected':''}>${esc(monthLabel(m))}</option>`);
+  }
+  return `<label class="period-picker">Mois du budget <select id="month-filter">${options.join('')}</select></label>`;
+}
 function txTable(items){return table(['Date','Opération','Catégorie','Type','Montant','Actions'],items.map(t=>`<tr><td>${esc(t.date)}</td><td><strong>${esc(t.label)}</strong>${t.planId?'<br><span class="tiny">Liée à un échéancier</span>':''}</td><td>${esc(t.category)}</td><td><span class="pill ${t.type==='revenu'?'blue':''}">${t.type==='revenu'?'Revenu':'Dépense'}</span></td><td class="money ${t.type==='depense'?'negative':''}">${t.type==='revenu'?'+':'−'}${euro(t.amount)}</td><td><div class="row" style="justify-content:flex-end"><button class="ghost small" data-action="edit-tx" data-id="${esc(t.id)}">Modifier</button><button class="danger small" data-action="remove-tx" data-id="${esc(t.id)}">×</button></div></td></tr>`))}
 function transactionsPage(){const edit=db.transactions.find(t=>t.id===editTxId),items=(txFilter==='all'?db.transactions:txMonth(txFilter)).slice().sort((a,b)=>b.date.localeCompare(a.date));const cats=[...new Set([...db.categories.map(c=>c.name),'Salaire','Aides','Autres revenus',edit?.category].filter(Boolean))];return `<h2>Transactions</h2><div class="panel"><h3>${edit?'Modifier une opération':'Ajouter une opération réelle'}</h3><form data-form="transaction"><div class="formgrid"><div><label>Date</label><input name="date" type="date" value="${esc(edit?.date||today())}" required></div><div><label>Libellé</label><input name="label" value="${esc(edit?.label||'')}" placeholder="Ex. Courses" maxlength="140" required></div><div><label>Montant (€)</label><input name="amount" type="number" min="0.01" step="0.01" value="${edit?.amount??''}" required></div><div><label>Type</label><select name="type">${uiSelect(['Dépense','Revenu'],edit?.type==='revenu'?'Revenu':'Dépense')}</select></div><div><label>Catégorie</label><select name="category">${uiSelect(cats,edit?.category)}</select></div></div><div class="row form-buttons"><button type="submit" class="primary">${edit?'Enregistrer les modifications':'Ajouter la transaction'}</button>${edit?'<button type="button" class="ghost" data-action="cancel-tx">Annuler</button>':''}</div></form></div><section class="panel"><div class="space"><h3>Historique (${items.length})</h3><label class="row" style="margin:0">Période <select id="tx-filter" style="width:auto"><option value="all">Toutes</option>${[...new Set(db.transactions.map(t=>t.date.slice(0,7)))].sort().reverse().map(m=>`<option value="${m}" ${txFilter===m?'selected':''}>${m}</option>`).join('')}</select></label></div>${txTable(items)}</section>`}
 function saveTx(form){const f=new FormData(form),label=String(f.get('label')||'').trim(),date=normDate(f.get('date')),amount=amountFrom(f.get('amount')),type=f.get('type')==='Revenu'?'revenu':'depense';if(!label||!date||!Number.isFinite(amount)||cents(amount)<=0)return alert('Vérifiez la date, le libellé et le montant positif.');let t=db.transactions.find(x=>x.id===editTxId);if(t){Object.assign(t,{date,label,amount:money(cents(amount)),type,category:String(f.get('category'))});if(t.planId&&type!=='depense'){delete t.planId;delete t.installmentId}}else db.transactions.push({id:uid(),date,label,amount:money(cents(amount)),type,category:String(f.get('category'))});editTxId=null;save('Transaction enregistrée')}
