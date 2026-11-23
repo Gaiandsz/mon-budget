@@ -172,6 +172,13 @@ details>summary {min-height:44px;align-content:center}
 #tabs button.active {background:var(--bg);color:var(--accent)}
 #toast {background:var(--accent);color:#fff9eb;border-radius:20px}
 #expense-dialog::backdrop {background:#38251770}
+
+.overview-switch{display:flex;gap:4px;width:fit-content;max-width:100%;padding:4px;margin:0 0 8px;background:var(--sub);border-radius:999px}
+.overview-switch button{background:transparent;color:var(--accent);min-height:44px}
+.overview-switch button[aria-pressed="true"]{background:var(--accent);color:var(--surface)}
+.overview-track{display:flex;align-items:flex-start;gap:12px;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;scrollbar-width:none;overscroll-behavior-x:contain}
+.overview-track::-webkit-scrollbar{display:none}
+.overview-track>section{box-sizing:border-box;flex:0 0 100%;min-width:0;margin:0;scroll-snap-align:start}
 </style>
 </head>
 <body>
@@ -246,10 +253,36 @@ function table(columns, rows) {
   return rows.length ? `<div class="entries">${rows.map(row => `<article class="entry">${[...row.matchAll(/<td(?:\s[^>]*)?>(.*?)<\/td>/gs)].map((cell,i) => `<div><span>${columns[i]}</span>${cell[1]}</div>`).join('')}</article>`).join('')}</div>` : '<p class="muted">Aucune donnée pour le moment.</p>';
 }
 const navItems = [['Tableau de bord','⌂','Accueil'],['Budgets','◔','Budgets'],['Revenus','↙','Revenus'],['Charges fixes','↗','Charges'],['Dettes','≡','Dettes']];
+let overviewIndex = 0;
+let overviewObserver;
+function bindOverview() {
+  const track = document.getElementById('overview-track');
+  const slides = Array.from(track.children);
+  const buttons = Array.from(document.querySelectorAll('.overview-switch button'));
+  function sync() {
+    const step = slides[1].offsetLeft - slides[0].offsetLeft;
+    if (!step) return;
+    overviewIndex = track.scrollLeft >= step / 2 ? 1 : 0;
+    track.style.height = Math.ceil(slides[overviewIndex].getBoundingClientRect().height) + 'px';
+    buttons.forEach((button,i)=>button.setAttribute('aria-pressed',String(i===overviewIndex)));
+  }
+  function move(i,behavior) {
+    track.scrollTo({left:slides[i].offsetLeft-slides[0].offsetLeft,behavior});
+  }
+  buttons.forEach((button,i)=>button.onclick=()=>move(i,
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'));
+  move(overviewIndex,'auto');
+  track.addEventListener('scroll',sync,{passive:true});
+  overviewObserver = new ResizeObserver(sync);
+  slides.forEach(slide=>overviewObserver.observe(slide));
+  sync();
+}
 function render() {
+  overviewObserver?.disconnect();
   document.getElementById('tabs').innerHTML = navItems.map(([page, icon, label]) => `<button class="${page===tab?'active':''}" data-action="tab" data-value="${page}" ${page===tab?'aria-current="page"':''}><span aria-hidden="true">${icon}</span>${label}</button>`).join('');
   const pages = {'Tableau de bord':monthlyDashboard,'Revenus':incomePage,'Transactions':transactionsPage,'Budgets':dailyBudgetPage,'Charges fixes':subscriptionsPage,'Dettes':schedulesPage,'Épargne':goalsPage,'Réglages':settingsPage};
   document.getElementById('view').innerHTML = pages[tab]();
+  if(tab==='Tableau de bord') bindOverview();
   if(tab==='Dettes') updateDraftTotals();
 }
 function monthPicker(){return `<label class="period-picker">Mois du budget <input id="month-filter" type="month" min="${firstBudgetMonth}" value="${esc(budgetMonth(selectedMonth))}"></label>`}
@@ -595,13 +628,13 @@ function monthlyDashboard() {
     return `<div class="forecast-row"><span><strong>${esc(monthLabel(budgetMonth(month)))}</strong><br><small>${shortDate(next.start)} – ${shortDate(next.end)}</small></span>${amountCell(forecast.free)}</div>`;
   }).join('');
   return `<div class="toolbar"><h2>Tableau de bord</h2>${monthPicker()}</div>
-  <section class="hero"><div class="space"><strong class="cycle-title">${esc(monthLabel(budgetMonth(selectedMonth)))}</strong><span>${current?'Cycle en cours':elapsed===0?'Prévision':'Cycle terminé'}</span></div>
+  <div class="overview-switch" role="group" aria-label="Cartes du tableau de bord"><button type="button" aria-controls="overview-track">Prévisionnel</button><button type="button" aria-controls="overview-track">Objectifs</button></div>
+  <div class="overview-track" id="overview-track" role="region" aria-label="Prévisionnel et objectifs"><section class="hero"><div class="space"><strong class="cycle-title">${esc(monthLabel(budgetMonth(selectedMonth)))}</strong><span>${current?'Cycle en cours':elapsed===0?'Prévision':'Cycle terminé'}</span></div>
   <div class="space"><span>Du ${shortDate(period.start)} au ${shortDate(period.end)}</span><span>${elapsed?'Jour '+elapsed+(period.waiting?'':' / '+period.days):''}</span></div>
   <div class="hero-amount">${euro(money(p.free))}</div><div>${p.free<0?'Déficit prévu':'Épargne possible en fin de cycle'}</div>
-  ${progress(elapsed,period.days)}</section>
+  ${progress(elapsed,period.days)}</section>${dashboardGoals()}</div>
   <div class="cycle-switch"><button class="ghost small" type="button" data-action="show-cycle" data-value="${selectedMonth===visibleCycle(activeKey)?monthShift(selectedMonth,1):visibleCycle(activeKey)}">${selectedMonth===visibleCycle(activeKey)?'Prévoir '+esc(monthLabel(budgetMonth(monthShift(selectedMonth,1))))+' →':(activeKey===visibleCycle(activeKey)?'← Revenir au cycle en cours':'← Revenir au premier cycle')}</button></div>
   ${quickEntry}
-  ${dashboardGoals()}
   ${salaryControl}${cyclePaymentPanel()}<div class="metrics">${[['Revenus',p.income,'Revenus'],['Charges fixes',p.fixed,'Charges fixes'],['Dettes',p.debt,'Dettes'],['Budgets prévus',p.variable,'Budgets']].map(([label,value,page])=>`<button data-action="tab" data-value="${page}"><small>${label}</small>${amountCell(value)}</button>`).join('')}</div>
   <div class="space budget-heading"><h3>${current?'Disponible aujourd’hui':elapsed===0?'Budgets du prochain cycle':'Budgets en fin de cycle'}</h3><button class="ghost small" data-action="tab" data-value="Budgets">Gérer</button></div>
   <div class="budget-stack" id="dashboard-budgets">${budgetCards(period,expenses,date,true)}</div><dialog id="expense-dialog" aria-labelledby="quick-expense-title"></dialog>
