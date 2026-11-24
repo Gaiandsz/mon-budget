@@ -203,12 +203,18 @@ details>summary {min-height:44px;align-content:center}
 .cycle-overview .bar{margin:14px 0}
 .cycle-overview .cycle-switch{margin:12px 0 0}
 .overview-track .forecast{margin-bottom:0}
+.cycle-overview .period-picker{display:inline-flex;position:relative;align-items:center;max-width:100%;color:inherit}
+.cycle-overview .period-picker select{appearance:none;background:transparent;border:0;border-radius:8px;color:inherit;font:inherit;font-size:clamp(18px,5.7vw,24px);font-weight:800;letter-spacing:-.035em;padding:0 22px 0 0;margin:0}
+.cycle-overview .period-picker option{color:var(--ink);background:var(--surface)}
+.cycle-overview .period-picker span{position:absolute;right:3px;pointer-events:none}
+.cloud-panel{background:transparent;border:0;box-shadow:none;padding:0;margin-top:8px}
+.cloud-panel p{font-size:12px;margin:0}
+.cloud-panel .row:not(:has(button:not([hidden]))){display:none}
 </style>
 </head>
 <body>
 <div hidden aria-label="Lancement de Mon Budget" id="launch-screen"><div class="coin"><img src="./apple-touch-icon.png" alt=""><video hidden playsinline preload="metadata" src="./9fa8087f4fc34ec3bc20908f44ad8461.MOV"></video></div><strong>Mon Budget</strong><button type="button" id="launch-sound" hidden>Activer le son</button><button type="button" id="launch-skip" hidden>Passer</button></div>
 <section class="cloud-panel" aria-label="Accès au budget partagé">
-  <strong>Mon Budget partagé</strong>
   <p id="cloud-status" role="status">Chargement…</p>
   <div class="row"><button type="button" class="ghost small" id="app-update" hidden>Ouvrir la mise à jour</button><button type="button" class="primary small" id="cloud-retry" hidden>Réessayer</button><button type="button" class="ghost small" id="cloud-reload" hidden>Recharger la version en ligne</button></div>
 </section>
@@ -319,7 +325,7 @@ function monthPicker() {
   for (let m = firstBudgetMonth; m && m <= through; m = monthShift(m,1)) {
     options.push(`<option value="${m}" ${m===selected?'selected':''}>${esc(monthLabel(m))}</option>`);
   }
-  return `<label class="period-picker">Mois du budget <select id="month-filter">${options.join('')}</select></label>`;
+  return `<div class="period-picker"><select id="month-filter" class="cycle-title" aria-label="Mois du budget">${options.join('')}</select><span aria-hidden="true">▾</span></div>`;
 }
 function txTable(items){return table(['Date','Opération','Catégorie','Type','Montant','Actions'],items.map(t=>`<tr><td>${esc(t.date)}</td><td><strong>${esc(t.label)}</strong>${t.planId?'<br><span class="tiny">Liée à un échéancier</span>':''}</td><td>${esc(t.category)}</td><td><span class="pill ${t.type==='revenu'?'blue':''}">${t.type==='revenu'?'Revenu':'Dépense'}</span></td><td class="money ${t.type==='depense'?'negative':''}">${t.type==='revenu'?'+':'−'}${euro(t.amount)}</td><td><div class="row" style="justify-content:flex-end"><button class="ghost small" data-action="edit-tx" data-id="${esc(t.id)}">Modifier</button><button class="danger small" data-action="remove-tx" data-id="${esc(t.id)}">×</button></div></td></tr>`))}
 function transactionsPage(){const edit=db.transactions.find(t=>t.id===editTxId),items=(txFilter==='all'?db.transactions:txMonth(txFilter)).slice().sort((a,b)=>b.date.localeCompare(a.date));const cats=[...new Set([...db.categories.map(c=>c.name),'Salaire','Aides','Autres revenus',edit?.category].filter(Boolean))];return `<h2>Transactions</h2><div class="panel"><h3>${edit?'Modifier une opération':'Ajouter une opération réelle'}</h3><form data-form="transaction"><div class="formgrid"><div><label>Date</label><input name="date" type="date" value="${esc(edit?.date||today())}" required></div><div><label>Libellé</label><input name="label" value="${esc(edit?.label||'')}" placeholder="Ex. Courses" maxlength="140" required></div><div><label>Montant (€)</label><input name="amount" type="number" min="0.01" step="0.01" value="${edit?.amount??''}" required></div><div><label>Type</label><select name="type">${uiSelect(['Dépense','Revenu'],edit?.type==='revenu'?'Revenu':'Dépense')}</select></div><div><label>Catégorie</label><select name="category">${uiSelect(cats,edit?.category)}</select></div></div><div class="row form-buttons"><button type="submit" class="primary">${edit?'Enregistrer les modifications':'Ajouter la transaction'}</button>${edit?'<button type="button" class="ghost" data-action="cancel-tx">Annuler</button>':''}</div></form></div><section class="panel"><div class="space"><h3>Historique (${items.length})</h3><label class="row" style="margin:0">Période <select id="tx-filter" style="width:auto"><option value="all">Toutes</option>${[...new Set(db.transactions.map(t=>t.date.slice(0,7)))].sort().reverse().map(m=>`<option value="${m}" ${txFilter===m?'selected':''}>${m}</option>`).join('')}</select></label></div>${txTable(items)}</section>`}
@@ -662,9 +668,9 @@ function monthlyDashboard() {
     const next = cycle(month), forecast = monthBudget(month,next,variableExpenses(next));
     return `<div class="forecast-row"><span><strong>${esc(monthLabel(budgetMonth(month)))}</strong><br><small>${shortDate(next.start)} – ${shortDate(next.end)}</small></span>${amountCell(forecast.free)}</div>`;
   }).join('');
-  return `<div class="toolbar"><h2>Tableau de bord</h2>${monthPicker()}</div>
+  return `<div class="toolbar"><h2>Tableau de bord</h2></div>
   <div class="overview-switch" role="group" aria-label="Cartes du tableau de bord"><button type="button" aria-controls="overview-track">Prévisionnel</button><button type="button" aria-controls="overview-track">Objectifs</button></div>
-  <div class="overview-track" id="overview-track" role="region" aria-label="Prévisionnel et objectifs"><section class="panel cycle-overview"><div class="space"><strong class="cycle-title">${esc(monthLabel(budgetMonth(selectedMonth)))}</strong><span>${current?'Cycle en cours':elapsed===0?'Prévision':'Cycle terminé'}</span></div>
+  <div class="overview-track" id="overview-track" role="region" aria-label="Prévisionnel et objectifs"><section class="panel cycle-overview"><div class="space">${monthPicker()}<span>${current?'Cycle en cours':elapsed===0?'Prévision':'Cycle terminé'}</span></div>
   <div class="space"><span>Du ${shortDate(period.start)} au ${shortDate(period.end)}</span><span>${elapsed?'Jour '+elapsed+(period.waiting?'':' / '+period.days):''}</span></div>
   <div class="hero-amount">${euro(money(p.free))}</div><div>${p.free<0?'Déficit prévu':'Épargne possible en fin de cycle'}</div>
   ${progress(elapsed,period.days)}<div class="cycle-switch"><button class="ghost small" type="button" data-action="show-cycle" data-value="${selectedMonth===visibleCycle(activeKey)?monthShift(selectedMonth,1):visibleCycle(activeKey)}">${selectedMonth===visibleCycle(activeKey)?'Prévoir '+esc(monthLabel(budgetMonth(monthShift(selectedMonth,1))))+' →':(activeKey===visibleCycle(activeKey)?'← Revenir au cycle en cours':'← Revenir au premier cycle')}</button></div></section>${dashboardGoals(future)}</div>
@@ -809,7 +815,7 @@ async function refreshSharedBudget(epoch=generation) {
     installSharedBudget(data.payload,data.revision);
   }
   app.hidden = false;
-  syncMessage('Budget partagé · synchronisé');
+  syncMessage('Synchronisé');
 }
 
 function save(message='Enregistré') {
@@ -839,7 +845,7 @@ async function pushSharedBudget() {
     revision = data;
     pending = null;
     render();
-    syncMessage('Budget partagé · synchronisé');
+    syncMessage('Synchronisé');
     if (message) toast(message);
   } catch {
     if (epoch === generation) syncMessage('Enregistrement à confirmer. Réessaie ou recharge le budget partagé.');
