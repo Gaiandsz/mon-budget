@@ -210,6 +210,13 @@ details>summary {min-height:44px;align-content:center}
 .cloud-panel{background:transparent;border:0;box-shadow:none;padding:0;margin-top:8px}
 .cloud-panel p{font-size:12px;margin:0}
 .cloud-panel .row:not(:has(button:not([hidden]))){display:none}
+.budget-donut{width:min(180px,100%);aspect-ratio:1;margin:14px auto;display:grid;place-items:center;border-radius:50%}
+.budget-donut>div{width:72%;aspect-ratio:1;border-radius:50%;display:grid;place-content:center;text-align:center;background:var(--surface)}
+.budget-breakdown{border-top:1px solid var(--line);padding:10px 0}
+.budget-breakdown summary strong{float:right}
+.budget-breakdown p{margin:5px 0}
+.savings-chart svg{width:100%;display:block;margin-top:4px}
+.savings-months{margin-top:12px}
 </style>
 </head>
 <body>
@@ -332,22 +339,45 @@ function txTable(items){return table(['Date','Opération','Catégorie','Type','M
 function transactionsPage(){const edit=db.transactions.find(t=>t.id===editTxId),items=(txFilter==='all'?db.transactions:txMonth(txFilter)).slice().sort((a,b)=>b.date.localeCompare(a.date));const cats=[...new Set([...db.categories.map(c=>c.name),'Salaire','Aides','Autres revenus',edit?.category].filter(Boolean))];return `<h2>Transactions</h2><div class="panel"><h3>${edit?'Modifier une opération':'Ajouter une opération réelle'}</h3><form data-form="transaction"><div class="formgrid"><div><label>Date</label><input name="date" type="date" value="${esc(edit?.date||today())}" required></div><div><label>Libellé</label><input name="label" value="${esc(edit?.label||'')}" placeholder="Ex. Courses" maxlength="140" required></div><div><label>Montant (€)</label><input name="amount" type="number" min="0.01" step="0.01" value="${edit?.amount??''}" required></div><div><label>Type</label><select name="type">${uiSelect(['Dépense','Revenu'],edit?.type==='revenu'?'Revenu':'Dépense')}</select></div><div><label>Catégorie</label><select name="category">${uiSelect(cats,edit?.category)}</select></div></div><div class="row form-buttons"><button type="submit" class="primary">${edit?'Enregistrer les modifications':'Ajouter la transaction'}</button>${edit?'<button type="button" class="ghost" data-action="cancel-tx">Annuler</button>':''}</div></form></div><section class="panel"><div class="space"><h3>Historique (${items.length})</h3><label class="row" style="margin:0">Période <select id="tx-filter" style="width:auto"><option value="all">Toutes</option>${[...new Set(db.transactions.map(t=>t.date.slice(0,7)))].sort().reverse().map(m=>`<option value="${m}" ${txFilter===m?'selected':''}>${m}</option>`).join('')}</select></label></div>${txTable(items)}</section>`}
 function saveTx(form){const f=new FormData(form),label=String(f.get('label')||'').trim(),date=normDate(f.get('date')),amount=amountFrom(f.get('amount')),type=f.get('type')==='Revenu'?'revenu':'depense';if(!label||!date||!Number.isFinite(amount)||cents(amount)<=0)return alert('Vérifiez la date, le libellé et le montant positif.');let t=db.transactions.find(x=>x.id===editTxId);if(t){Object.assign(t,{date,label,amount:money(cents(amount)),type,category:String(f.get('category'))});if(t.planId&&type!=='depense'){delete t.planId;delete t.installmentId}}else db.transactions.push({id:uid(),date,label,amount:money(cents(amount)),type,category:String(f.get('category'))});editTxId=null;save('Transaction enregistrée')}
 function normalizeCategory(raw) {
+  return {...normalizeBudgetAmount(raw), scoped:raw.scoped===true,
+    changes:(Array.isArray(raw.changes)?raw.changes:[]).filter(change=>change && /^\d{4}-(0[1-9]|1[0-2])$/.test(change.month))
+      .map(change=>({...normalizeBudgetAmount({...change,name:raw.name}),month:change.month,once:change.once===true}))};
+}
+function categoryForMonth(category, month) {
+  const changes = category.changes || [];
+  const once = changes.find(change=>change.once && change.month===month);
+  const ongoing = changes.filter(change=>!change.once && change.month<=month).sort((a,b)=>b.month.localeCompare(a.month))[0];
+  return once || ongoing || (category.scoped ? null : category);
+}
+function cycleCategories(month=selectedMonth) {
+  return db.categories.map((category,index)=>({budget:categoryForMonth(category,budgetMonth(month)),index})).filter(item=>item.budget);
+}
+function setBudgetAmount(category, form, limit) {
+  const month = budgetMonth(selectedMonth), once = form.get('scope')==='once';
+  const change = {month,once,limit:money(cents(limit)),cadence:form.get('cadence'),perCycle:true};
+  category.changes = (category.changes || []).filter(item=>item.month!==month || (!item.once && once));
+  category.changes.push(change);
+}
+function budgetScope() {
+  return '<label>Appliquer à<select name="scope"><option value="once">Ce cycle uniquement</option><option value="ongoing">Ce cycle et les suivants</option></select></label>';
+}
+function normalizeBudgetAmount(raw) {
   const name = String(raw.name);
   const limit = Math.max(0,Number(raw.limit)||0);
-  if (raw.cadence==='weekly' || raw.cadence==='daily') return {name,limit,cadence:raw.cadence};
+  if (raw.cadence==='weekly' || raw.cadence==='daily') return {name,limit,cadence:raw.cadence,perCycle:raw.perCycle===true};
   if (/course|nourriture|aliment/i.test(name)) return {name,limit:money(cents(limit)*7/30),cadence:'weekly'};
   return {name,limit,cadence:'daily'};
 }
 function cadenceSelect(cadence) {
-  return `<select name="cadence"><option value="daily" ${cadence==='daily'?'selected':''}>Par cycle · disponible chaque jour</option><option value="weekly" ${cadence==='weekly'?'selected':''}>Par semaine · disponible chaque semaine</option></select>`;
+  return `<select name="cadence"><option value="daily" ${cadence==='daily'?'selected':''}>Par cycle · disponible chaque jour</option><option value="weekly" ${cadence==='weekly'?'selected':''}>Par cycle · disponible chaque semaine</option></select>`;
 }
 function budgetsPage() {
   return `<section class="budget-editor">
-  ${db.categories.map((c,i)=>`<form class="budget-card" data-form="edit-budget" data-index="${i}"><h3>${categoryIcon(c.name)} ${esc(c.name)}</h3>
-    <div class="formgrid"><label>Montant (€)<input name="limit" type="number" required min="0" step="0.01" value="${c.limit}"></label>
-    <label>Fréquence${cadenceSelect(c.cadence)}</label></div><div class="row gap-top"><button class="primary small">Enregistrer</button><button type="button" class="ghost small" data-action="remove-category" data-index="${i}">Supprimer</button></div></form>`).join('')}
+  ${cycleCategories().map(({budget:c,index:i})=>`<form class="budget-card" data-form="edit-budget" data-index="${i}"><h3>${categoryIcon(c.name)} ${esc(c.name)}</h3>
+    <div class="formgrid"><label>Montant par cycle (€)<input name="limit" type="number" required min="0" step="0.01" value="${money(position(c,[],cycle(selectedMonth),today()).cap)}"></label>
+    <label>Fréquence${cadenceSelect(c.cadence)}</label>${budgetScope()}</div><div class="row gap-top"><button class="primary small">Enregistrer</button><button type="button" class="ghost small" data-action="remove-category" data-index="${i}">Supprimer</button></div></form>`).join('')}
   <form class="budget-card" data-form="category"><h3>Nouveau budget</h3><label>Nom<input name="name" required maxlength="70" placeholder="Ex. Transport"></label>
-  <div class="formgrid"><label>Montant (€)<input name="limit" min="0" step="0.01" type="number" required></label><label>Fréquence${cadenceSelect('daily')}</label></div><p><button class="primary small">Ajouter</button></p></form></section>`;
+  <div class="formgrid"><label>Montant par cycle (€)<input name="limit" min="0" step="0.01" type="number" required></label><label>Fréquence${cadenceSelect('daily')}</label>${budgetScope()}</div><p><button class="primary small">Ajouter</button></p></form></section>`;
 }
 function subscriptionsPage(){const item=db.subscriptions.find(s=>s.id===chargeEdit);return `<div class="toolbar"><h2>Charges fixes</h2>${monthPicker()}</div><details class="panel" ${item?'open':''}><summary>${item?'Modifier la charge fixe':'+ Ajouter une charge'}</summary><form data-form="subscription"><div class="formgrid"><div><label>Nom</label><input name="name" required placeholder="Ex. Loyer" maxlength="120" value="${esc(item?.name)}"></div><div><label>Montant par mois (€)</label><input type="number" name="amount" required min="0.01" step="0.01" value="${item?.amount ?? ''}"></div><div><label>Début</label><input type="month" name="start" value="${esc(item?.start || budgetMonth(selectedMonth))}" required></div><div><label>Fin (facultatif)</label><input type="month" name="end" value="${esc(item?.end)}"></div></div><p><button class="primary">${item ? 'Enregistrer' : 'Ajouter la charge fixe'}</button> ${item ? '<button type="button" class="ghost" data-action="cancel-charge">Annuler</button>' : ''}</p></form></details><section class="panel"><h3>Charges récurrentes</h3>${table(['Nom','Montant mensuel','Début','Fin','Actions'],db.subscriptions.map(s=>`<tr><td>${esc(s.name)}</td><td class="money">${euro(s.amount)}</td><td>${esc(s.start)}</td><td>${esc(s.end||'—')}</td><td><button class="ghost small" data-action="edit-charge" data-id="${esc(s.id)}">Modifier</button> <button class="danger small" data-action="remove-sub" data-id="${esc(s.id)}">Supprimer</button></td></tr>`))}<p class="tip">Ces charges sont automatiquement comptées chaque mois dans ton tableau de bord.</p></section>`}
 function splitEven(total,count){const val=Math.floor(total/count),extra=total-val*count;return Array.from({length:count},(_,i)=>val+(i<extra?1:0))}
@@ -377,10 +407,10 @@ document.addEventListener('click',e=>{const el=e.target.closest('[data-action]')
 document.addEventListener('submit',e=>{const form=e.target.closest('form[data-form]');if(!form)return;e.preventDefault();const f=new FormData(form);switch(form.dataset.form){case'quick-expense':return saveQuickExpense(form,f);case'edit-budget':{
   const category=db.categories[Number(form.dataset.index)], limit=amountFrom(f.get('limit'));
   if(!category||!Number.isFinite(limit)||limit<0)return alert('Vérifie le montant du budget.');
-  Object.assign(category,normalizeCategory({name:category.name,limit:money(cents(limit)),cadence:f.get('cadence')}));
+  setBudgetAmount(category,f,limit);
   budgetEditorOpen=true;
   return save('Budget mis à jour');
-}case'salary-date':return recordSalary(f.get('date'),true);case'new-salary-date':return recordSalary(f.get('date'));case'payday':{const day=Number(f.get('day'));if(!Number.isInteger(day)||day<1||day>31)return;db.payday=day;selectedMonth=visibleCycle(cycleMonth(today()));return save('Date du salaire enregistrée')}case'recurring-income':case'income-exception':case'daily-expense':return saveMonthlyForm(form);case'transaction':return saveTx(form);case'category':{const name=String(f.get('name')||'').trim(),limit=amountFrom(f.get('limit'));if(!name||!Number.isFinite(limit)||limit<0)return alert('Catégorie ou plafond invalide.');if(db.categories.some(c=>c.name.toLowerCase()===name.toLowerCase()))return alert('Cette catégorie existe déjà.');db.categories.push(normalizeCategory({name,limit:money(cents(limit)),cadence:f.get('cadence')}));return save('Catégorie ajoutée')}case'subscription':{const name=String(f.get('name')||'').trim(),start=String(f.get('start')||''),end=String(f.get('end')||''),amount=amountFrom(f.get('amount'));if(!name||!monthShift(start,0)||end&&!monthShift(end,0)||end&&end<start||!Number.isFinite(amount)||cents(amount)<=0)return alert('Vérifiez les dates et le montant.');const item=db.subscriptions.find(s=>s.id===chargeEdit);const details={name,amount:money(cents(amount)),start,end};if(item)Object.assign(item,details);else db.subscriptions.push({id:uid(),...details});chargeEdit=null;return save('Charge fixe enregistrée')}case'plan':return savePlan();case'pay-installment':return savePayment(form);case'goal':{const name=String(f.get('name')||'').trim(),target=amountFrom(f.get('target')),saved=amountFrom(f.get('saved'));if(!name||!Number.isFinite(target)||cents(target)<=0||!Number.isFinite(saved)||cents(saved)<0)return alert('Objectif ou montant invalide.');db.goals.push({id:uid(),name,target:money(cents(target)),saved:money(cents(saved))});return save('Objectif créé')}case'starting':{const val=amountFrom(f.get('starting'));if(!Number.isFinite(val))return alert('Solde invalide.');db.starting=money(cents(val));return save('Solde initial enregistré')}}});
+}case'salary-date':return recordSalary(f.get('date'),true);case'new-salary-date':return recordSalary(f.get('date'));case'payday':{const day=Number(f.get('day'));if(!Number.isInteger(day)||day<1||day>31)return;db.payday=day;selectedMonth=visibleCycle(cycleMonth(today()));return save('Date du salaire enregistrée')}case'recurring-income':case'income-exception':case'daily-expense':return saveMonthlyForm(form);case'transaction':return saveTx(form);case'category':{const name=String(f.get('name')||'').trim(),limit=amountFrom(f.get('limit'));if(!name||!Number.isFinite(limit)||limit<0)return alert('Catégorie ou plafond invalide.');if(cycleCategories().some(({budget:c})=>c.name.toLowerCase()===name.toLowerCase()))return alert('Cette catégorie existe déjà.');const existing=db.categories.find(c=>c.name.toLowerCase()===name.toLowerCase());if(existing){setBudgetAmount(existing,f,limit)}else{const category=normalizeCategory({name,limit:0,cadence:f.get('cadence'),scoped:true});setBudgetAmount(category,f,limit);db.categories.push(category)}return save('Catégorie ajoutée')}case'subscription':{const name=String(f.get('name')||'').trim(),start=String(f.get('start')||''),end=String(f.get('end')||''),amount=amountFrom(f.get('amount'));if(!name||!monthShift(start,0)||end&&!monthShift(end,0)||end&&end<start||!Number.isFinite(amount)||cents(amount)<=0)return alert('Vérifiez les dates et le montant.');const item=db.subscriptions.find(s=>s.id===chargeEdit);const details={name,amount:money(cents(amount)),start,end};if(item)Object.assign(item,details);else db.subscriptions.push({id:uid(),...details});chargeEdit=null;return save('Charge fixe enregistrée')}case'plan':return savePlan();case'pay-installment':return savePayment(form);case'goal':{const name=String(f.get('name')||'').trim(),target=amountFrom(f.get('target')),saved=amountFrom(f.get('saved'));if(!name||!Number.isFinite(target)||cents(target)<=0||!Number.isFinite(saved)||cents(saved)<0)return alert('Objectif ou montant invalide.');db.goals.push({id:uid(),name,target:money(cents(target)),saved:money(cents(saved))});return save('Objectif créé')}case'starting':{const val=amountFrom(f.get('starting'));if(!Number.isFinite(val))return alert('Solde invalide.');db.starting=money(cents(val));return save('Solde initial enregistré')}}});
 document.addEventListener('input',e=>{const el=e.target;if(el.id==='cycle-day'){
   const period=cycle(selectedMonth);
   const date=new Date((dayNumber(period.start)+Number(el.value)-1)*86400000).toISOString().slice(0,10);
@@ -516,10 +546,12 @@ function position(category, expenses, period, date) {
   const elapsed = Math.max(0,Math.min(period.allocationDays,dayNumber(date)-dayNumber(period.start)+1));
   const limit = cents(category.limit), weekly = category.cadence==='weekly';
   const days = period.allocationDays;
-  const cap = weekly ? Math.round(limit * days / 7) : limit;
-  const released = weekly ? Math.round(limit * Math.min(days,Math.ceil(elapsed/7)*7) / 7) : Math.round(cap * elapsed / days);
+  const cap = weekly && !category.perCycle ? Math.round(limit * days / 7) : limit;
+  const weekday = (new Date(period.start+'T12:00:00Z').getUTCDay()+6)%7;
+  const weeklyDays = category.perCycle ? Math.ceil((elapsed+weekday)/7)*7-weekday : Math.ceil(elapsed/7)*7;
+  const released = elapsed===0 ? 0 : weekly ? Math.round(cap*Math.min(days,weeklyDays)/days) : Math.round(cap*elapsed/days);
   const used = expenses.filter(t => t.category===category.name && t.date<=date).reduce((n,t)=>n+cents(t.amount),0);
-  return {cap,released,used,available:released-used,rate:weekly?category.limit:money(cap/days),weekly};
+  return {cap,released,used,available:released-used,rate:weekly?money(cap*7/days):money(cap/days),weekly};
 }
 function monthBudget(month, period, expenses) {
   const financialMonth = budgetMonth(month);
@@ -527,11 +559,12 @@ function monthBudget(month, period, expenses) {
   const scheduled = db.plans.filter(p=>p.kind==='paiement').flatMap(p=>p.payments)
     .filter(p=>p.month===financialMonth).reduce((sum,p)=>sum+cents(p.amount),0);
   const arrears = month===cycleMonth(today()) ? cents(overdueTotal()) : 0;
-  const variable = db.categories.reduce((sum,c)=>{
+  const active = cycleCategories(month);
+  const variable = active.reduce((sum,{budget:c})=>{
     const budget = position(c,expenses,period,period.end);
     return sum + Math.max(budget.cap,budget.used);
   },0)
-    + expenses.filter(t=>!db.categories.some(c=>c.name===t.category)).reduce((sum,t)=>sum+cents(t.amount),0);
+    + expenses.filter(t=>!active.some(({budget:c})=>c.name===t.category)).reduce((sum,t)=>sum+cents(t.amount),0);
   return {income,fixed,debt:scheduled+arrears,variable,free:income-fixed-scheduled-arrears-variable};
 }
 function amountCell(value) {
@@ -539,7 +572,7 @@ function amountCell(value) {
 }
 function budgetCards(period, expenses, date, quick=false) {
   const canAdd = quick && date>=period.start && date<period.next && date<=today();
-  return db.categories.map((c,index) => {
+  return cycleCategories().map(({budget:c,index}) => {
     const b = position(c,expenses,period,date);
     const content = `<div class="space"><span class="budget-icon" aria-hidden="true">${categoryIcon(c.name)}</span><div class="budget-name"><strong>${esc(c.name)}</strong><small>${euro(b.rate)} / ${b.weekly?'semaine':'jour'}</small></div>${canAdd?'<span class="budget-plus" aria-hidden="true">+</span>':''}</div>
     <div class="budget-available">${amountCell(b.available)} <small>${b.available<0?'de dépassement':'disponibles'}</small></div>
@@ -630,7 +663,7 @@ document.addEventListener('change',event=>{
   if (index!==undefined) updateCyclePayment(Number(index),event.target.checked);
 });
 
-function dashboardGoals(future) {
+function dashboardGoals() {
   const goals = db.goals;
   const first = visibleCycle(cycleMonth(today()));
   let cumulative = 0;
@@ -642,12 +675,26 @@ function dashboardGoals(future) {
   const cards = goals.map(goal=>{
     const gap = cents(goal.target)-cents(goal.saved);
     const reached = forecast.find(point=>point.total>=gap);
-    const estimate = gap<=0 ? 'Objectif atteint' : reached
-      ? 'Objectif estimé en '+monthLabel(budgetMonth(reached.month))
-      : 'Objectif hors de portée sur les 12 cycles prévus';
-    return `<article class="plan-card"><div class="space"><strong>${esc(goal.name)}</strong><span>${euro(goal.saved)} / ${euro(goal.target)}</span></div>${progress(goal.saved,goal.target)}<small>${esc(estimate)}</small></article>`;
+    const saved = cents(goal.saved), target = cents(goal.target);
+    const totals = [saved,...forecast.map(point=>saved+point.total)];
+    const low = Math.min(0,...totals), high = Math.max(1,target,...totals);
+    const y = value=>126-110*(value-low)/(high-low);
+    const points = totals.map((value,index)=>[10+300*index/(totals.length-1),y(value)]);
+    return `<article class="plan-card savings-chart">
+    <div class="space"><strong>${esc(goal.name)}</strong><span>${euro(goal.saved)} sur ${euro(goal.target)} épargnés</span></div>
+    <p><strong>Horizon estimé</strong> · ${gap<=0?'Objectif atteint':reached?esc(monthLabel(budgetMonth(reached.month))):'Au-delà des 12 cycles prévus'}</p>
+    <small>Objectif · ${euro(goal.target)}</small>
+    <svg viewBox="0 0 320 136" role="img" aria-label="Projection de l’épargne cumulée sur 12 cycles">
+      <line x1="10" x2="310" y1="${y(target)}" y2="${y(target)}" stroke="var(--line)" stroke-width="2"/>
+      <polyline points="${points.map(point=>point.join(',')).join(' ')}" fill="none" stroke="#b84519" stroke-width="3" stroke-dasharray="5 4"/>
+      <circle cx="10" cy="${y(saved)}" r="5" fill="#2e654a"/>
+    </svg>
+    <div class="space"><small>Aujourd’hui</small><small>${esc(monthLabel(budgetMonth(forecast.at(-1).month)))}</small></div>
+    <details class="savings-months"><summary>Voir la projection mois par mois</summary>
+      ${forecast.map((point,index)=>`<div class="forecast-row"><span>${esc(monthLabel(budgetMonth(point.month)))}<br><small>${euro(money(totals[index+1]-totals[index]))} prévus sur le cycle</small></span>${amountCell(totals[index+1])}</div>`).join('')}
+    </details></article>`;
   }).join('');
-  return `<section class="panel"><div class="space"><h3>Objectifs d’épargne</h3><button class="ghost small" data-action="tab" data-value="Épargne">${goals.length?'Gérer':'Créer un objectif'}</button></div>${cards}${goals.length?'<p class="muted">Estimation sur 12 cycles si tu consacres toute ton épargne prévue à cet objectif.</p>':''}<details class="panel forecast"><summary>Épargne possible sur les cycles suivants</summary>${future}</details></section>`;
+  return `<section class="panel"><div class="space"><h3>Objectifs d’épargne</h3><button class="ghost small" data-action="tab" data-value="Épargne">${goals.length?'Gérer':'Créer un objectif'}</button></div>${cards}${goals.length?'<p class="muted">Estimation sur 12 cycles si tu consacres toute ton épargne prévue à cet objectif.</p>':''}</section>`;
 }
 
 function monthlyDashboard() {
@@ -655,7 +702,7 @@ function monthlyDashboard() {
   const date = today()>period.end ? period.end : today();
   const activeKey = cycleMonth(today());
   const current = selectedMonth===activeKey;
-  const quickButtons = db.categories.map((category,index)=>`<button type="button" class="quick-tile" data-action="quick-expense" data-index="${index}" data-date="${today()}"><span aria-hidden="true">${categoryIcon(category.name)}</span><strong>${esc(category.name)}</strong></button>`).join('');
+  const quickButtons = cycleCategories(cycleMonth(today())).map(({budget:category,index})=>`<button type="button" class="quick-tile" data-action="quick-expense" data-index="${index}" data-date="${today()}"><span aria-hidden="true">${categoryIcon(category.name)}</span><strong>${esc(category.name)}</strong></button>`).join('');
   const quickEntry = quickButtons ? `<section class="quick-entry"><div class="space"><h3>Ajouter une dépense</h3><small>Aujourd’hui</small></div><div class="quick-tiles">${quickButtons}</div></section>` : '';
   const latest = db.salaryReceipts.at(-1);
   const salaryControl = current ? `<section class="panel salary-panel"><div class="space">
@@ -665,16 +712,12 @@ function monthlyDashboard() {
     <form data-form="new-salary-date"><label>Date de réception<input type="date" name="date" required max="${today()}" value="${today()}"></label><p><button class="primary">Démarrer le cycle</button></p></form></details>
     ${latest?`<button class="ghost small" data-action="tab" data-value="Réglages">Corriger la date du dernier salaire</button>`:''}</section>` : '';
   const elapsed = Math.min(period.days,Math.max(0,dayNumber(date)-dayNumber(period.start)+1));
-  const future = Array.from({length:11},(_,i)=>monthShift(selectedMonth,i+1)).map(month=>{
-    const next = cycle(month), forecast = monthBudget(month,next,variableExpenses(next));
-    return `<div class="forecast-row"><span><strong>${esc(monthLabel(budgetMonth(month)))}</strong><br><small>${shortDate(next.start)} – ${shortDate(next.end)}</small></span>${amountCell(forecast.free)}</div>`;
-  }).join('');
   return `<div class="toolbar"><h2>Tableau de bord</h2></div>
   <div class="overview-switch" role="group" aria-label="Cartes du tableau de bord"><button type="button" aria-controls="overview-track">Prévisionnel</button><button type="button" aria-controls="overview-track">Objectifs</button></div>
   <div class="overview-track" id="overview-track" role="region" aria-label="Prévisionnel et objectifs"><section class="panel cycle-overview"><div class="space">${monthPicker(true)}<span>${current?'Cycle en cours':elapsed===0?'Prévision':'Cycle terminé'}</span></div>
   <div class="space"><span>Du ${shortDate(period.start)} au ${shortDate(period.end)}</span><span>${elapsed?'Jour '+elapsed+(period.waiting?'':' / '+period.days):''}</span></div>
   <div class="hero-amount">${euro(money(p.free))}</div><div>${p.free<0?'Déficit prévu':'Épargne possible en fin de cycle'}</div>
-  ${progress(elapsed,period.days)}<div class="cycle-switch"><button class="ghost small" type="button" data-action="show-cycle" data-value="${selectedMonth===visibleCycle(activeKey)?monthShift(selectedMonth,1):visibleCycle(activeKey)}">${selectedMonth===visibleCycle(activeKey)?'Prévoir '+esc(monthLabel(budgetMonth(monthShift(selectedMonth,1))))+' →':(activeKey===visibleCycle(activeKey)?'← Revenir au cycle en cours':'← Revenir au premier cycle')}</button></div></section>${dashboardGoals(future)}</div>
+  ${progress(elapsed,period.days)}<div class="cycle-switch"><button class="ghost small" type="button" data-action="show-cycle" data-value="${selectedMonth===visibleCycle(activeKey)?monthShift(selectedMonth,1):visibleCycle(activeKey)}">${selectedMonth===visibleCycle(activeKey)?'Prévoir '+esc(monthLabel(budgetMonth(monthShift(selectedMonth,1))))+' →':(activeKey===visibleCycle(activeKey)?'← Revenir au cycle en cours':'← Revenir au premier cycle')}</button></div></section>${dashboardGoals()}</div>
   
   ${quickEntry}
   ${salaryControl}${cyclePaymentPanel()}<div class="metrics">${[['Revenus',p.income,'Revenus'],['Charges fixes',p.fixed,'Charges fixes'],['Dettes',p.debt,'Dettes'],['Budgets prévus',p.variable,'Budgets']].map(([label,value,page])=>`<button data-action="tab" data-value="${page}"><small>${label}</small>${amountCell(value)}</button>`).join('')}</div>
@@ -694,18 +737,33 @@ function categoryIcon(name) {
 
 let expenseOpen = false;
 let budgetEditorOpen = false;
+function budgetBreakdown(period, entries) {
+  const items = cycleCategories().map(({budget}, index)=>({
+    budget, data:position(budget,entries,period,today()),
+    color:['#d9a344','#2e654a','#e9b49b','#8cb5ce','#ad7358'][index%5]
+  }));
+  const total = items.reduce((sum,item)=>sum+item.data.cap,0);
+  let end = 0;
+  const slices = items.filter(item=>item.data.cap>0).map(({data,color})=>{
+    const start = end;
+    end += data.cap;
+    return color+' '+100*start/total+'% '+100*end/total+'%';
+  });
+  return `<section class="panel"><h3>Répartition du cycle</h3><div class="budget-donut" style="background:${slices.length?'conic-gradient('+slices.join(',')+')':'var(--sub)'}"><div><strong>${euro(money(total))}</strong><small>Total prévu</small></div></div>
+  ${items.map(({budget,data,color})=>`<details class="budget-breakdown"><summary><span style="color:${color}" aria-hidden="true">●</span> ${esc(budget.name)} <strong>${euro(money(data.cap))}</strong></summary><p>${euro(data.rate)} / ${data.weekly?'semaine':'jour'}</p><p>${euro(money(data.available))} disponibles · ${euro(money(data.used))} dépensés · ${euro(money(data.released))} cumulés</p></details>`).join('')}</section>`;
+}
 function dailyBudgetPage() {
   const period = cycle(selectedMonth), date = today()<period.start ? period.start : today()>period.end ? period.end : today();
   const entries = variableExpenses(period);
   return `<div class="toolbar"><h2>Budgets</h2>${monthPicker()}</div>
   <details class="panel" ${expenseOpen?'open':''}><summary>+ Ajouter une dépense</summary><form data-form="daily-expense">
-  <label>Catégorie<select name="category" required>${db.categories.map((c,i)=>`<option value="${i}">${esc(c.name)}</option>`).join('')}</select></label>
+  <label>Catégorie<select name="category" required>${cycleCategories().map(({budget:c,index:i})=>`<option value="${i}">${esc(c.name)}</option>`).join('')}</select></label>
   <div class="formgrid"><label>Libellé facultatif<input name="label" maxlength="120" placeholder="Ex. Supermarché"></label>
   <label>Montant (€)<input name="amount" type="number" min="0.01" step="0.01" required></label>
   <label>Date<input name="date" type="date" min="${period.start}" max="${period.end}" value="${date}" required></label></div>
-  <p><button class="primary" ${db.categories.length?'':'disabled'}>Enregistrer</button></p></form></details>
+  <p><button class="primary" ${cycleCategories().length?'':'disabled'}>Enregistrer</button></p></form></details>
   <details class="panel" ${budgetEditorOpen?'open':''}><summary>Modifier mes budgets</summary>${budgetsPage()}</details>
-  <div class="budget-stack">${budgetCards(period,entries,today())}</div>
+  ${budgetBreakdown(period,entries)}
   <details class="panel forecast"><summary>Dépenses du cycle (${entries.length})</summary>${txTable(entries.slice().sort((a,b)=>b.date.localeCompare(a.date)))}</details>`;
 }
 function settingsPage() {
