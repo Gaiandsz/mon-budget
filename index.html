@@ -333,28 +333,53 @@ let budgetBeforeSimulation = null;
 let budgetPreviewDate = null;
 const budgetViewDate = ()=>simulatedBudgetDate || budgetPreviewDate || realToday();
 
-function simulateBudgetDay(date) {
-  if (!budgetBeforeSimulation) budgetBeforeSimulation = {data:clone(db),month:selectedMonth};
-  simulatedBudgetDate = date;
-  selectedMonth = cycleMonth(date);
-  syncMessage('Mode test · '+shortDate(date)+' · données locales');
-  render();
+function sliderDate(input, period) {
+  const day = Number(input.value);
+  if (day === 0 && realToday() < period.start) return realToday();
+  return dateAtDay(dayNumber(period.start) + day - 1);
 }
 
-function stopBudgetSimulation() {
+function simulateBudgetDay(date, commit = true) {
+  if (date === realToday()) return stopBudgetSimulation(commit);
+  if (!budgetBeforeSimulation) {
+    generation++;
+    budgetBeforeSimulation = {data:db, month:selectedMonth};
+    db = clone(db);
+  }
+  simulatedBudgetDate = date;
+  syncMessage('Mode test · '+shortDate(date)+' · données locales');
+  if (commit) {
+    selectedMonth = cycleMonth(date);
+    render();
+  }
+}
+
+function stopBudgetSimulation(redraw = true) {
   if (budgetBeforeSimulation) {
+    generation++;
     db = budgetBeforeSimulation.data;
     selectedMonth = budgetBeforeSimulation.month;
     budgetBeforeSimulation = null;
-    editTxId = incomeEdit = chargeEdit = editPlanId = null;
-    payForm = null;
+    editTxId = incomeEdit = chargeEdit = editPlanId = debtDetailId = null;
+    expenseHistory = editingBudgetExpense = expenseCategory = payForm = null;
+    expenseOpen = keepPlanOpen = false;
   }
   simulatedBudgetDate = budgetPreviewDate = null;
   makeDraft();
   syncMessage('Synchronisé');
-  render();
-  void refreshSharedBudget();
+  if (redraw) {
+    render();
+    if (!document.hidden) void refreshSharedBudget();
+  }
 }
+
+function discardBackgroundSimulation() {
+  if (budgetBeforeSimulation) stopBudgetSimulation();
+}
+window.addEventListener('pagehide', discardBackgroundSimulation);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) discardBackgroundSimulation();
+});
 
 function toast(message){const node=document.getElementById('toast');node.textContent=message;node.style.display='block';clearTimeout(toastTimer);toastTimer=setTimeout(()=>node.style.display='none',3600)}
 function change(section){expenseHistory=editingBudgetExpense=expenseCategory=null;tab=section;payForm=null;window.scrollTo(0,0);if(section==='Dettes'&&!draft)makeDraft();render()}
@@ -568,13 +593,14 @@ case'quick-expense':return saveQuickExpense(form,f);case'edit-budget':{
 }case'goal':{const name=String(f.get('name')||'').trim(),target=amountFrom(f.get('target')),saved=amountFrom(f.get('saved'));if(!name||!Number.isFinite(target)||cents(target)<=0||!Number.isFinite(saved)||cents(saved)<0)return alert('Objectif ou montant invalide.');db.goals.push({id:uid(),name,target:money(cents(target)),saved:money(cents(saved))});return save('Objectif créé')}case'starting':{const val=amountFrom(f.get('starting'));if(!Number.isFinite(val))return alert('Solde invalide.');db.starting=money(cents(val));return save('Solde initial enregistré')}}});
 document.addEventListener('input',e=>{const el=e.target;if(el.id==='cycle-day'){
   const period=cycle(selectedMonth);
-  const date=dateAtDay(dayNumber(period.start)+Number(el.value)-1);
+  const date=sliderDate(el,period);
+  simulateBudgetDay(date,false);
   document.getElementById('day-label').textContent=shortDate(date);
-  document.getElementById('reset-budget-date').hidden=false;
+  document.getElementById('reset-budget-date').hidden=!budgetBeforeSimulation;
   document.getElementById('dashboard-budgets').innerHTML=budgetCards(period,variableExpenses(period),date,true);
   return;
 }if(el.matches('[data-draft]')){const key=el.dataset.draft;if(key==='amount'){const v=amountFrom(el.value);draft.amount=Number.isFinite(v)?v:0;if(!draft.manual){const split=splitEven(Math.max(0,cents(draft.amount)),draft.count);document.querySelectorAll('[data-payment-index]').forEach((input,i)=>{draft.payments[i].amount=money(split[i]);input.value=draft.payments[i].amount})}updateDraftTotals()}else if(key==='name')draft.name=el.value;else if(key==='start'){draft.start=el.value;document.getElementById('draft-rows').innerHTML=draft.payments.map((pm,i)=>`<div class="edit-row"><strong>${esc(monthLabel(monthShift(draft.start,i)))}</strong><div class="edit-row-note muted">Mensualité ${i+1}</div><div><input aria-label="Montant du mois ${i+1}" type="number" min="0" step="0.01" data-payment-index="${i}" value="${pm.amount}" required></div></div>`).join('');updateDraftTotals()}else if(key==='count'){const n=Number(el.value);if(Number.isInteger(n)&&n>=1&&n<=60){resizeDraft(n);document.getElementById('draft-rows').innerHTML=draft.payments.map((pm,i)=>`<div class="edit-row"><strong>${esc(monthLabel(monthShift(draft.start,i)))}</strong><div class="edit-row-note muted">Mensualité ${i+1}</div><div><input aria-label="Montant du mois ${i+1}" type="number" min="0" step="0.01" data-payment-index="${i}" value="${pm.amount}" required></div></div>`).join('');updateDraftTotals()}else document.getElementById('save-plan').disabled=true}else if(key==='kind'||key==='category')draft[key]=el.value;return}if(el.matches('[data-payment-index]')){const idx=Number(el.dataset.paymentIndex),val=amountFrom(el.value);draft.payments[idx].amount=Number.isFinite(val)?val:NaN;draft.manual=true;updateDraftTotals()}});
-document.addEventListener('change',e=>{const el=e.target;if(el.id==='cycle-day'){const period=cycle(selectedMonth);return simulateBudgetDay(dateAtDay(dayNumber(period.start)+Number(el.value)-1));}if(el.id==='month-filter'){selectedMonth=monthShift(el.value,0)?cycleKeyForBudgetMonth(el.value):visibleCycle(cycleMonth(today()));budgetPreviewDate=null;expenseHistory=editingBudgetExpense=expenseCategory=null;return render()}if(el.id==='tx-filter'){txFilter=el.value;return render()}if(el.matches('[data-limit]')){const idx=Number(el.dataset.limit),value=amountFrom(el.value);if(!Number.isFinite(value)||value<0){alert('Plafond invalide.');return render()}db.categories[idx].limit=money(cents(value));return save('Plafond mis à jour')}if(el.name==='existing'&&el.closest('form[data-form="pay-installment"]')){const form=el.closest('form'),linked=!!el.value;for(const field of ['date','amount']){form.elements[field].disabled=linked;form.elements[field].required=!linked}return}});
+document.addEventListener('change',e=>{const el=e.target;if(el.id==='cycle-day'){const period=cycle(selectedMonth);return simulateBudgetDay(sliderDate(el,period));}if(el.id==='month-filter'){selectedMonth=monthShift(el.value,0)?cycleKeyForBudgetMonth(el.value):visibleCycle(cycleMonth(today()));budgetPreviewDate=null;expenseHistory=editingBudgetExpense=expenseCategory=null;return render()}if(el.id==='tx-filter'){txFilter=el.value;return render()}if(el.matches('[data-limit]')){const idx=Number(el.dataset.limit),value=amountFrom(el.value);if(!Number.isFinite(value)||value<0){alert('Plafond invalide.');return render()}db.categories[idx].limit=money(cents(value));return save('Plafond mis à jour')}if(el.name==='existing'&&el.closest('form[data-form="pay-installment"]')){const form=el.closest('form'),linked=!!el.value;for(const field of ['date','amount']){form.elements[field].disabled=linked;form.elements[field].required=!linked}return}});
 let incomeEdit = null;
 let chargeEdit = null;
 
