@@ -217,6 +217,7 @@ details>summary {min-height:44px;align-content:center}
 .budget-breakdown p{margin:5px 0}
 .savings-chart svg{width:100%;display:block;margin-top:4px}
 .savings-months{margin-top:12px}
+.cycle-overview .metrics{margin:16px 0 0}
 </style>
 </head>
 <body>
@@ -717,10 +718,10 @@ function monthlyDashboard() {
   <div class="overview-track" id="overview-track" role="region" aria-label="Prévisionnel et objectifs"><section class="panel cycle-overview"><div class="space">${monthPicker(true)}<span>${current?'Cycle en cours':elapsed===0?'Prévision':'Cycle terminé'}</span></div>
   <div class="space"><span>Du ${shortDate(period.start)} au ${shortDate(period.end)}</span><span>${elapsed?'Jour '+elapsed+(period.waiting?'':' / '+period.days):''}</span></div>
   <div class="hero-amount">${euro(money(p.free))}</div><div>${p.free<0?'Déficit prévu':'Épargne possible en fin de cycle'}</div>
-  ${progress(elapsed,period.days)}<div class="cycle-switch"><button class="ghost small" type="button" data-action="show-cycle" data-value="${selectedMonth===visibleCycle(activeKey)?monthShift(selectedMonth,1):visibleCycle(activeKey)}">${selectedMonth===visibleCycle(activeKey)?'Prévoir '+esc(monthLabel(budgetMonth(monthShift(selectedMonth,1))))+' →':(activeKey===visibleCycle(activeKey)?'← Revenir au cycle en cours':'← Revenir au premier cycle')}</button></div></section>${dashboardGoals()}</div>
+  ${progress(elapsed,period.days)}<div class="cycle-switch"><button class="ghost small" type="button" data-action="show-cycle" data-value="${selectedMonth===visibleCycle(activeKey)?monthShift(selectedMonth,1):visibleCycle(activeKey)}">${selectedMonth===visibleCycle(activeKey)?'Prévoir '+esc(monthLabel(budgetMonth(monthShift(selectedMonth,1))))+' →':(activeKey===visibleCycle(activeKey)?'← Revenir au cycle en cours':'← Revenir au premier cycle')}</button></div><div class="metrics">${[['Revenus',p.income,'Revenus'],['Charges fixes',p.fixed,'Charges fixes'],['Dettes',p.debt,'Dettes'],['Budgets prévus',p.variable,'Budgets']].map(([label,value,page])=>`<button data-action="tab" data-value="${page}"><small>${label}</small>${amountCell(value)}</button>`).join('')}</div></section>${dashboardGoals()}</div>
   
   ${quickEntry}
-  ${salaryControl}${cyclePaymentPanel()}<div class="metrics">${[['Revenus',p.income,'Revenus'],['Charges fixes',p.fixed,'Charges fixes'],['Dettes',p.debt,'Dettes'],['Budgets prévus',p.variable,'Budgets']].map(([label,value,page])=>`<button data-action="tab" data-value="${page}"><small>${label}</small>${amountCell(value)}</button>`).join('')}</div>
+  ${salaryControl}${cyclePaymentPanel()}
   <div class="space budget-heading"><h3>${current?'Disponible aujourd’hui':elapsed===0?'Budgets du prochain cycle':'Budgets en fin de cycle'}</h3><button class="ghost small" data-action="tab" data-value="Budgets">Gérer</button></div>
   <div class="budget-stack" id="dashboard-budgets">${budgetCards(period,expenses,date,true)}</div><dialog id="expense-dialog" aria-labelledby="quick-expense-title"></dialog>
   <label class="day-control">Voir le cumul au <output id="day-label">${elapsed?shortDate(date):'début du cycle'}</output><input aria-label="Jour du cycle" id="cycle-day" type="range" min="1" max="${period.days}" value="${Math.max(1,elapsed)}"></label>
