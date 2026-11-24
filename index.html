@@ -260,6 +260,13 @@ details>summary {min-height:44px;align-content:center}
 .spending-keys .budget-swatch{margin-top:5px}
 .spending-marker{display:block;text-align:center}
 .panel.income-overview{background:#d9a344;color:#42291b}
+.income-flows{background:#fbefd3}
+.income-flows svg{display:block;width:100%;max-height:300px;margin:16px auto}
+.flow-keys{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.flow-keys h4{margin:0 0 8px}
+.flow-keys section>div{display:flex;align-items:baseline;gap:5px;margin:6px 0;font-size:13px;overflow-wrap:anywhere}
+.flow-keys i{width:9px;height:9px;border-radius:50%;flex:none}
+.flow-keys strong{display:block}
 </style>
 </head>
 <body>
@@ -588,8 +595,34 @@ function incomePage() {
     <div class="budget-ring-total"><strong>${euro(money(total))}</strong><small>Total prévu</small></div></div>
     <div class="budget-chart-keys">${legend.map(({item,index,color,amount})=>`<button type="button" data-action="open-income" data-index="${index}" aria-haspopup="dialog"><span class="budget-swatch" style="background:${color}" aria-hidden="true"></span><span>${esc(item.name)}<small>${item.start>month?'Dès '+esc(monthLabel(item.start)):euro(money(amount))}</small></span></button>`).join('')||'<p>Aucun revenu prévu.</p>'}</div></div>
   </section>
+  ${incomeFlows(legend)}
   ${[...legend,null].map(entry=>incomeDialog(entry,month)).join('')}`;
 }
+function incomeFlows(legend) {
+  const period=cycle(selectedMonth);
+  const plan=monthBudget(selectedMonth,period,variableExpenses(period));
+  const sources=legend.filter(row=>row.amount>0).map(row=>[row.item.name,row.amount,row.color]);
+  if(plan.free<0)sources.push(['À financer',-plan.free,'#ab4936']);
+  const uses=[['Charges fixes',plan.fixed,'#2e654a'],['Dettes',plan.debt,'#c98972'],['Budgets',plan.variable,'#6296b1'],['Épargne possible',Math.max(0,plan.free),'#bd802b']].filter(row=>row[1]>0);
+  const total=sources.reduce((sum,row)=>sum+row[1],0);
+  if(!total)return '<section class="panel"><h3>Destination des revenus</h3><p>Aucun montant prévu sur ce cycle.</p></section>';
+  const height=Math.max(150,Math.max(sources.length,uses.length)*45);
+  const scale=(height*.68)/total;
+  const center=(height-total*scale)/2;
+  function ribbons(rows,incoming){
+    let sum=0;
+    const gap=(height-total*scale)/rows.length;
+    return rows.map(([name,value,color],i)=>{
+      const band=value*scale, y=sum+gap*(i+.5), mid=center+sum;
+      sum+=band;
+      const x=incoming?5:215, bend=incoming?58:162;
+      return `<path fill="${color}" opacity=".72" d="M${x} ${y} C${bend} ${y} ${bend} ${mid} 110 ${mid} v${band} C${bend} ${mid+band} ${bend} ${y+band} ${x} ${y+band} Z"><title>${esc(name)} · ${euro(money(value))}</title></path><rect x="${incoming?1:215}" y="${y}" width="4" height="${band}" fill="${color}"/>`;
+    }).join('');
+  }
+  function labels(rows){return rows.map(([name,value,color])=>`<div><i style="background:${color}"></i><span>${esc(name)}<strong>${euro(money(value))}</strong></span></div>`).join('')}
+  return `<section class="panel income-flows"><h3>Destination des revenus</h3><svg viewBox="0 0 220 ${height}" role="img" aria-label="Flux prévus du cycle, des sources de revenus à leur utilisation">${ribbons(sources,true)}${ribbons(uses,false)}</svg><div class="flow-keys"><section><h4>Ressources</h4>${labels(sources)}</section><section><h4>Utilisation prévue</h4>${labels(uses)}</section></div></section>`;
+}
+
 function incomeDialog(entry, month) {
   const item=entry?.item, effective=item && item.start>month ? item.start : month;
   const heading=item?.name || 'Nouveau revenu';
