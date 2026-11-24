@@ -270,6 +270,7 @@ details>summary {min-height:44px;align-content:center}
 .panel.charges-cycle{background:#2e654a;color:#fff9eb}
 .panel.debts-cycle{background:#e9b49b;color:#44291d}
 .chart-editor:not([open]){display:none}
+.history-card{position:relative}.history-target{position:absolute;inset:0;width:100%;height:100%;background:transparent;border:0;border-radius:inherit}.history-card .budget-plus{position:relative;z-index:1;padding:0;border:0}
 </style>
 </head>
 <body>
@@ -279,7 +280,7 @@ details>summary {min-height:44px;align-content:center}
   <div class="row"><button type="button" class="ghost small" id="app-update" hidden>Ouvrir la mise à jour</button><button type="button" class="primary small" id="cloud-retry" hidden>Réessayer</button><button type="button" class="ghost small" id="cloud-reload" hidden>Recharger la version en ligne</button></div>
 </section>
 <div id="cloud-app" hidden>
-<header><div class="heading"><div class="brand"><span class="mark" aria-hidden="true">€</span> Mon Budget</div><button class="ghost" data-action="tab" data-value="Réglages" aria-label="Réglages">⚙</button></div></header>
+<header><div class="heading"><div class="brand"><span class="mark" aria-hidden="true">€</span> <span id="budget-title">Mon Budget</span></div><button class="ghost" data-action="tab" data-value="Réglages" aria-label="Réglages">⚙</button></div></header>
 <main class="wrap"><nav id="tabs" aria-label="Navigation"></nav><div id="view"></div></main>
 <div id="toast" role="status" aria-live="polite"></div>
 
@@ -400,6 +401,7 @@ function bindOverview() {
   sync();
 }
 function render() {
+  document.getElementById('budget-title').textContent = secondAccountCode ? 'Mon Budget · Compte 2' : 'Mon Budget';
   overviewObserver?.disconnect();
   document.getElementById('tabs').innerHTML = navItems.map(([page, icon, label]) => `<button class="${page===tab?'active':''}" data-action="tab" data-value="${page}" ${page===tab?'aria-current="page"':''}><span aria-hidden="true">${icon}</span>${label}</button>`).join('');
   const pages = {'Tableau de bord':monthlyDashboard,'Revenus':incomePage,'Transactions':transactionsPage,'Budgets':dailyBudgetPage,'Charges fixes':subscriptionsPage,'Dettes':schedulesPage,'Épargne':goalsPage,'Réglages':settingsPage};
@@ -533,11 +535,12 @@ function savePlan(){const total=cents(draft.amount),sum=draft.payments.reduce((s
 function savePayment(form){const f=new FormData(form),p=db.plans.find(x=>x.id===form.dataset.plan),pm=p?.payments.find(x=>x.id===form.dataset.payment);if(!p||!pm||p.kind!=='paiement')return;const existingId=f.get('existing');if(existingId){const tx=db.transactions.find(t=>t.id===existingId);if(!tx||tx.type!=='depense'||tx.planId)return alert('Cette transaction ne peut pas être liée.');tx.planId=p.id;tx.installmentId=pm.id}else{const date=normDate(f.get('date')),amount=amountFrom(f.get('amount'));if(!date||!Number.isFinite(amount)||cents(amount)<=0)return alert('Renseignez une date et un montant positif.');if(cents(amount)>cents(remaining(p,pm))&&!confirm('Ce débit dépasse la mensualité prévue. Continuer ?'))return;db.transactions.push({id:uid(),date,label:p.name,amount:money(cents(amount)),type:'depense',category:p.category||'Autres',planId:p.id,installmentId:pm.id})}payForm=null;save('Paiement lié à l’échéancier et au registre des transactions')}
 function goalsPage(){return `<h2>Épargne et objectifs</h2><section class="panel"><h3>Nouvel objectif</h3><form data-form="goal"><div class="formgrid"><div><label>Objectif</label><input name="name" placeholder="Ex. Fonds d'urgence" required maxlength="120"></div><div><label>Montant cible (€)</label><input name="target" type="number" min="0.01" step="0.01" required></div><div><label>Épargné actuellement (€)</label><input name="saved" type="number" min="0" step="0.01" value="0" required></div></div><p><button class="primary">Créer l'objectif</button></p></form></section><section class="panel"><h3>Mes objectifs</h3>${db.goals.map(g=>`<div style="margin:13px 0 20px"><div class="space"><b>${esc(g.name)}</b><span>${euro(g.saved)} / ${euro(g.target)}</span><div class="row"><button class="ghost small" data-action="goal-update" data-id="${esc(g.id)}">Mettre à jour</button><button class="danger small" data-action="remove-goal" data-id="${esc(g.id)}">Supprimer</button></div></div>${progress(g.saved,g.target)}</div>`).join('')||'<div class="empty">Aucun objectif pour le moment.</div>'}</section>`}
 function handleAction(el){const action=el.dataset.action,id=el.dataset.id,planId=el.dataset.plan,payId=el.dataset.payment;switch(action){
+case'close-second-account':return switchAccount(null);
 case'add-chart-plan':makeDraft();keepPlanOpen=true;return render();
 case'add-chart-charge':chargeEdit=null;render();{const editor=document.getElementById('charge-editor');editor.showModal()}return;
 case'open-income':return document.getElementById('income-dialog-'+(el.dataset.index??'new')).showModal();
 case'reset-income-month':{const item=db.incomes.find(i=>i.id===id);if(!item)return;delete item.exceptions[item.start>budgetMonth(selectedMonth)?item.start:budgetMonth(selectedMonth)];return save('Montant habituel rétabli');}
-case'open-expense-history':expenseHistory=el.dataset.index;editingBudgetExpense=null;expenseCategory=null;return render();
+case'open-expense-history':if(tab!=='Budgets'){tab='Budgets';window.scrollTo(0,0)}expenseHistory=el.dataset.index;editingBudgetExpense=null;expenseCategory=null;return render();
 case'add-category-expense':editingBudgetExpense=null;expenseCategory=expenseHistory;expenseOpen=true;return render();
 case'edit-cycle-expense':editingBudgetExpense=id;expenseCategory=expenseHistory;expenseOpen=true;return render();
 case'delete-cycle-expense':
@@ -550,7 +553,8 @@ case'close-expense-history':expenseHistory=null;return el.closest('dialog').clos
 case'close-expense-editor':editingBudgetExpense=null;expenseCategory=null;return render();
 case'reset-budget-date':return stopBudgetSimulation();case'open-budget':return document.getElementById('budget-dialog-'+(el.dataset.index??'new')).showModal();case'open-budget-expense':expenseHistory=null;expenseOpen=true;return render();case'close-budget-dialog':return el.closest('dialog').close();case'open-savings-jar':return el.closest('article').querySelector('dialog').showModal();case'close-savings-jar':return el.closest('dialog').close();case'show-cycle':budgetPreviewDate=null;selectedMonth=visibleCycle(monthShift(el.dataset.value,0)||cycleMonth(today()));return render();case'quick-expense':return openQuickExpense(Number(el.dataset.index),el.dataset.date);case'close-expense':return document.getElementById('expense-dialog').close();case'salary-received':return recordSalary(today());case'add-expense':expenseOpen=true;return change('Budgets');case'edit-income':incomeEdit=id;return render();case'cancel-income':incomeEdit=null;return render();case'delete-income':if(confirm('Supprimer ce revenu et ses exceptions ?')){db.incomes=db.incomes.filter(i=>i.id!==id);incomeEdit=null;return save('Revenu supprimé')}return;case'tab':return change(el.dataset.value);case'edit-tx':editTxId=id;tab='Transactions';return render();case'cancel-tx':editTxId=null;return render();case'remove-tx':{const t=db.transactions.find(x=>x.id===id);if(t&&confirm('Supprimer définitivement cette opération réelle ?')){db.transactions=db.transactions.filter(x=>x.id!==id);if(editTxId===id)editTxId=null;save('Transaction supprimée')}return}case'remove-category':{const index=Number(el.dataset.index);if(confirm('Supprimer cette catégorie ? Les opérations conservent leur ancien libellé.')){db.categories.splice(index,1);save('Catégorie supprimée')}return}case'edit-charge':chargeEdit=id;render();document.getElementById('charge-editor').showModal();return;case'cancel-charge':chargeEdit=null;return render();case'remove-sub':if(confirm('Supprimer cet abonnement ?')){db.subscriptions=db.subscriptions.filter(x=>x.id!==id);save('Abonnement supprimé')}return;case'new-plan':makeDraft();return render();case'cancel-plan':keepPlanOpen=false;makeDraft();return render();case'split-even':keepPlanOpen=true;draft.payments.forEach((pm,i)=>pm.amount=money(splitEven(cents(draft.amount),draft.count)[i]));draft.manual=false;return render();case'debt-detail':debtDetailId=id;return render();case'close-debt-detail':debtDetailId=null;payForm=null;return render();case'edit-plan':{const p=db.plans.find(x=>x.id===id);if(!p)return;makeDraft(p);keepPlanOpen=true;return render()}case'remove-plan':{const p=db.plans.find(x=>x.id===id);if(!p)return;if(!confirm('Supprimer cet échéancier ? Les dépenses réellement enregistrées seront conservées mais déliées.'))return;db.transactions.forEach(t=>{if(t.planId===id){delete t.planId;delete t.installmentId}});db.plans=db.plans.filter(x=>x.id!==id);if(editPlanId===id)makeDraft();payForm=null;save('Échéancier supprimé · dépenses conservées');return}case'open-pay':payForm={planId,paymentId:payId};return render();case'cancel-pay':payForm=null;return render();case'unlink-tx':{const t=db.transactions.find(x=>x.id===id);if(t&&confirm('Délier cette dépense de l’échéancier sans supprimer son débit réel ?')){delete t.planId;delete t.installmentId;save('Dépense déliée, montant réel conservé')}return}case'reserve':{const p=db.plans.find(x=>x.id===planId),pm=p?.payments.find(x=>x.id===payId);if(!pm||p.kind!=='provision')return;pm.reserved=!pm.reserved;save(pm.reserved?'Provision marquée comme réservée (suivi uniquement)':'Réserve annulée');return}case'goal-update':{const g=db.goals.find(x=>x.id===id);if(!g)return;const v=prompt('Montant actuellement épargné (€)',g.saved);if(v===null)return;if(!validNumber(v)||cents(amountFrom(v))<0)return alert('Montant invalide.');g.saved=money(cents(amountFrom(v)));return save('Objectif mis à jour')}case'remove-goal':if(confirm('Supprimer cet objectif ?')){db.goals=db.goals.filter(x=>x.id!==id);save('Objectif supprimé')}return;}}
 document.addEventListener('click',e=>{const el=e.target.closest('[data-action]');if(el)handleAction(el)});
-document.addEventListener('submit',e=>{const form=e.target.closest('form[data-form]');if(!form)return;e.preventDefault();const f=new FormData(form);switch(form.dataset.form){case'quick-expense':return saveQuickExpense(form,f);case'edit-budget':{
+document.addEventListener('submit',e=>{const form=e.target.closest('form[data-form]');if(!form)return;e.preventDefault();const f=new FormData(form);switch(form.dataset.form){case'open-second-account':return switchAccount(String(f.get('code')||'').trim());
+case'quick-expense':return saveQuickExpense(form,f);case'edit-budget':{
   const category=db.categories[Number(form.dataset.index)], limit=amountFrom(f.get('limit'));
   if(!category||!Number.isFinite(limit)||limit<0)return alert('Vérifie le montant du budget.');
   setBudgetAmount(category,f,limit);
@@ -794,11 +798,10 @@ function budgetCards(period, expenses, date, quick=false) {
   const canAdd = quick && date>=period.start && date<period.next && date<=today();
   return cycleCategories().map(({budget:c,index}) => {
     const b = position(c,expenses,period,date);
-    const content = `<div class="space"><span class="budget-icon" aria-hidden="true">${categoryIcon(c.name)}</span><div class="budget-name"><strong>${esc(c.name)}</strong><small>${euro(b.rate)} / ${b.weekly?'semaine':'jour'}</small></div>${canAdd?'<span class="budget-plus" aria-hidden="true">+</span>':''}</div>
+    const content = `<div class="space"><span class="budget-icon" aria-hidden="true">${categoryIcon(c.name)}</span><div class="budget-name"><strong>${esc(c.name)}</strong><small>${euro(b.rate)} / ${b.weekly?'semaine':'jour'}</small></div>${canAdd?`<button type="button" class="budget-plus" data-action="quick-expense" data-index="${index}" data-date="${date}" aria-label="Ajouter une dépense · ${esc(c.name)}">+</button>`:''}</div>
     <div class="budget-available">${amountCell(b.available)} <small>${b.available<0?'de dépassement':'disponibles'}</small></div>
-    ${progress(b.used,b.cap)}<div class="space caption"><span>${euro(money(b.used))} dépensés</span><span>${euro(money(b.released))} cumulés</span></div>`;
-    return canAdd ? `<button type="button" class="budget-card quick-budget" data-action="quick-expense" data-index="${index}" data-date="${date}" aria-label="Ajouter une dépense · ${esc(c.name)} · ${euro(money(b.available))} disponibles">${content}</button>`
-      : `<article class="budget-card">${content}</article>`;
+    ${progress(b.used,b.released)}<div class="space caption"><span>${euro(money(b.used))} dépensés</span><span>${euro(money(b.released))} cumulés</span></div>`;
+    return `<article class="budget-card history-card">${content}<button class="history-target" data-action="open-expense-history" data-index="${index}" aria-label="Historique des dépenses · ${esc(c.name)}"></button></article>`;
   }).join('') || '<p class="muted">Ajoute un budget pour commencer le suivi.</p>';
 }
 function expenseChoices(name) {
@@ -1029,7 +1032,7 @@ function dailyBudgetPage() {
     <div class="space"><h3>${esc(category?.name || 'Hors budget')}</h3><button type="button" class="ghost small" data-action="close-expense-history">Fermer</button></div>
     <p class="muted">Du ${shortDate(period.start)} au ${shortDate(period.end)}</p>
     ${category?`<button type="button" class="primary small" data-action="add-category-expense">+ Ajouter une dépense</button>`:''}
-    ${history.length?table(['Date','Achat','Montant','Actions'],history.map(entry=>`<tr><td>${shortDate(entry.date)}</td><td>${esc(entry.label)}</td><td class="money">${euro(entry.amount)}</td><td><div class="row"><button type="button" class="ghost small" data-action="edit-cycle-expense" data-id="${esc(entry.id)}">Modifier</button><button type="button" class="danger small" data-action="delete-cycle-expense" data-id="${esc(entry.id)}">Supprimer</button></div></td></tr>`).join('')):'<p>Aucun achat sur ce cycle.</p>'}
+    ${history.length?table(['Date','Achat','Montant','Actions'],history.map(entry=>`<tr><td>${shortDate(entry.date)}</td><td>${esc(entry.label)}</td><td class="money">${euro(entry.amount)}</td><td><div class="row"><button type="button" class="ghost small" data-action="edit-cycle-expense" data-id="${esc(entry.id)}">Modifier</button><button type="button" class="danger small" data-action="delete-cycle-expense" data-id="${esc(entry.id)}">Supprimer</button></div></td></tr>`)):'<p>Aucun achat sur ce cycle.</p>'}
   </dialog>`:''}
   <dialog class="jar-dialog" id="budget-expense" aria-label="${edit?'Modifier la dépense':'Ajouter une dépense'}"><div class="space"><h3>${edit?'Modifier la dépense':'Ajouter une dépense'}</h3><button type="button" class="ghost small" data-action="close-expense-editor">Fermer</button></div><form data-form="daily-expense" data-id="${esc(edit?.id||'')}">
   ${edit?'<p>'+esc(edit.category)+'</p>':`<label>Catégorie<select name="category" required>${categories.map(({budget:c,index:i})=>`<option value="${i}" ${String(i)===expenseCategory?'selected':''}>${esc(c.name)}</option>`).join('')}</select></label>`}
@@ -1040,7 +1043,11 @@ function dailyBudgetPage() {
 }
 function settingsPage() {
   const latest = db.salaryReceipts.at(-1);
-  return `<h2>Réglages</h2><section class="panel"><h3>${latest?'Corriger le dernier salaire reçu':'Saisir la réception du salaire'}</h3>
+  return `<h2>Réglages</h2><section class="panel"><h3>Comptes</h3>
+  ${simulatedBudgetDate ? '<p class="muted">Quitte le mode test pour changer de compte.</p>' : secondAccountCode
+    ? '<p>Compte 2 ouvert</p><button type="button" class="ghost" data-action="close-second-account">Revenir au compte principal</button>'
+    : `<form data-form="open-second-account"><label>Code du deuxième compte<input type="password" name="code" maxlength="64" autocomplete="off" autocapitalize="none" spellcheck="false" required></label><p><button class="primary">Ouvrir le compte 2</button></p></form>`}
+  </section><section class="panel"><h3>${latest?'Corriger le dernier salaire reçu':'Saisir la réception du salaire'}</h3>
   <p class="muted">Cette date définit le début du cycle. Les suivants sont prévus le même jour chaque mois, ou le dernier jour si le mois est plus court.</p>
   <form data-form="salary-date"><label>Date de réception<input type="date" name="date" required max="${today()}" value="${latest?.date||today()}"></label><p><button class="primary">Enregistrer</button></p></form></section>
   ${latest?'':`<section class="panel"><h3>Jour habituel du salaire</h3>
@@ -1094,7 +1101,12 @@ const retry = document.getElementById('cloud-retry');
 const reload = document.getElementById('cloud-reload');
 const linkKey = new URLSearchParams(location.hash.slice(1)).get('acces');
 const validLink = /^[a-f0-9]{64}$/.test(linkKey || '');
-async function budgetRequest(method, body={}) {
+let secondAccountCode = null;
+async function budgetRequest(method, body={}, code=secondAccountCode) {
+  if (code !== null) {
+    method = 'mon_budget_second_compte';
+    body = {...body, p_code:code};
+  }
   const response = await fetch(CLOUD_URL + '/rest/v1/rpc/' + method, {
     method:'POST', credentials:'omit', referrerPolicy:'no-referrer', cache:'no-store',
     headers:{apikey:CLOUD_KEY,'Content-Type':'application/json'},
@@ -1109,6 +1121,40 @@ let pending = null;
 let busy = false;
 let conflict = false;
 let generation = 0;
+
+async function switchAccount(code) {
+  if (!validLink || (revision === null && code !== null) || busy || pending || simulatedBudgetDate) return;
+  generation++;
+  busy = true;
+  updateCloudControls();
+  syncMessage('Ouverture du compte…');
+  try {
+    const data = await budgetRequest('mon_budget_lire_lien', {}, code);
+    if (!data) {
+      syncMessage(code === null ? 'Compte principal indisponible.' :
+        'Code incorrect ou accès temporairement bloqué.');
+      toast(cloudStatus.textContent);
+      return;
+    }
+    secondAccountCode = code;
+    revision = null;
+    expenseHistory = editingBudgetExpense = expenseCategory = debtDetailId = budgetPreviewDate = null;
+    expenseOpen = keepPlanOpen = false;
+    txFilter = 'all';
+    overviewIndex = 0;
+    tab = 'Tableau de bord';
+    installSharedBudget(data.payload, data.revision);
+    app.hidden = false;
+    window.scrollTo(0,0);
+    syncMessage('Synchronisé');
+    toast(code === null ? 'Compte principal ouvert' : 'Compte 2 ouvert');
+  } catch {
+    syncMessage('Impossible d’ouvrir le compte. Réessaie.');
+  } finally {
+    busy = false;
+    updateCloudControls();
+  }
+}
 
 function syncMessage(message) {
   cloudStatus.textContent = message;
@@ -1140,6 +1186,11 @@ async function refreshSharedBudget(epoch=generation) {
     return;
   }
   if (epoch !== generation || pending || busy || simulatedBudgetDate) return;
+  if (!data && secondAccountCode !== null) {
+    await switchAccount(null);
+    if (secondAccountCode === null) toast('Compte 2 verrouillé');
+    return;
+  }
   if (!data) {
     app.querySelector('dialog[open]')?.close();
     app.hidden = true;
@@ -1154,7 +1205,7 @@ async function refreshSharedBudget(epoch=generation) {
     installSharedBudget(data.payload,data.revision);
   }
   app.hidden = false;
-  syncMessage('Synchronisé');
+  if (tab !== 'Réglages') syncMessage('Synchronisé');
 }
 
 function save(message='Enregistré') {
