@@ -318,13 +318,14 @@ function render() {
   if(tab==='Tableau de bord') bindOverview();
   if(tab==='Dettes') updateDraftTotals();
 }
-function monthPicker() {
+function monthPicker(inForecast = false) {
   const selected = budgetMonth(selectedMonth);
   const through = monthShift(selected, 12);
   const options = [];
   for (let m = firstBudgetMonth; m && m <= through; m = monthShift(m,1)) {
     options.push(`<option value="${m}" ${m===selected?'selected':''}>${esc(monthLabel(m))}</option>`);
   }
+  if (!inForecast) return `<label class="period-picker">Mois du budget <select id="month-filter">${options.join('')}</select></label>`;
   return `<div class="period-picker"><select id="month-filter" class="cycle-title" aria-label="Mois du budget">${options.join('')}</select><span aria-hidden="true">▾</span></div>`;
 }
 function txTable(items){return table(['Date','Opération','Catégorie','Type','Montant','Actions'],items.map(t=>`<tr><td>${esc(t.date)}</td><td><strong>${esc(t.label)}</strong>${t.planId?'<br><span class="tiny">Liée à un échéancier</span>':''}</td><td>${esc(t.category)}</td><td><span class="pill ${t.type==='revenu'?'blue':''}">${t.type==='revenu'?'Revenu':'Dépense'}</span></td><td class="money ${t.type==='depense'?'negative':''}">${t.type==='revenu'?'+':'−'}${euro(t.amount)}</td><td><div class="row" style="justify-content:flex-end"><button class="ghost small" data-action="edit-tx" data-id="${esc(t.id)}">Modifier</button><button class="danger small" data-action="remove-tx" data-id="${esc(t.id)}">×</button></div></td></tr>`))}
@@ -670,7 +671,7 @@ function monthlyDashboard() {
   }).join('');
   return `<div class="toolbar"><h2>Tableau de bord</h2></div>
   <div class="overview-switch" role="group" aria-label="Cartes du tableau de bord"><button type="button" aria-controls="overview-track">Prévisionnel</button><button type="button" aria-controls="overview-track">Objectifs</button></div>
-  <div class="overview-track" id="overview-track" role="region" aria-label="Prévisionnel et objectifs"><section class="panel cycle-overview"><div class="space">${monthPicker()}<span>${current?'Cycle en cours':elapsed===0?'Prévision':'Cycle terminé'}</span></div>
+  <div class="overview-track" id="overview-track" role="region" aria-label="Prévisionnel et objectifs"><section class="panel cycle-overview"><div class="space">${monthPicker(true)}<span>${current?'Cycle en cours':elapsed===0?'Prévision':'Cycle terminé'}</span></div>
   <div class="space"><span>Du ${shortDate(period.start)} au ${shortDate(period.end)}</span><span>${elapsed?'Jour '+elapsed+(period.waiting?'':' / '+period.days):''}</span></div>
   <div class="hero-amount">${euro(money(p.free))}</div><div>${p.free<0?'Déficit prévu':'Épargne possible en fin de cycle'}</div>
   ${progress(elapsed,period.days)}<div class="cycle-switch"><button class="ghost small" type="button" data-action="show-cycle" data-value="${selectedMonth===visibleCycle(activeKey)?monthShift(selectedMonth,1):visibleCycle(activeKey)}">${selectedMonth===visibleCycle(activeKey)?'Prévoir '+esc(monthLabel(budgetMonth(monthShift(selectedMonth,1))))+' →':(activeKey===visibleCycle(activeKey)?'← Revenir au cycle en cours':'← Revenir au premier cycle')}</button></div></section>${dashboardGoals(future)}</div>
