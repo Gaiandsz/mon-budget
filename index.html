@@ -489,7 +489,7 @@ let debtDetailId=null;
 function obligationsCard(debt,outstanding=false) {
   const month=budgetMonth(selectedMonth), current=selectedMonth===cycleMonth(today());
   const rows=debt ? db.plans.filter(p=>p.kind==='paiement').map(p=>({
-    id:p.id,name:p.name,amount:p.payments.reduce((sum,pm)=>sum+(outstanding?cents(remaining(p,pm)):pm.month===month?cents(pm.amount):current&&pm.month<month?cents(remaining(p,pm)):0),0)
+    id:p.id,name:p.name,paid:p.payments.filter(pm=>pm.month===month).reduce((sum,pm)=>sum+Math.min(cents(pm.amount),cents(installmentPaid(p,pm))),0),amount:p.payments.reduce((sum,pm)=>sum+(outstanding?cents(remaining(p,pm)):pm.month===month?cents(remaining(p,pm)):current&&pm.month<month?cents(remaining(p,pm)):0),0)
   })) : db.subscriptions.filter(c=>c.start<=month&&(!c.end||c.end>=month)).map(c=>({id:c.id,name:c.name,amount:cents(c.amount)}));
   const items=rows.filter(row=>row.amount>0);
   const total=items.reduce((sum,row)=>sum+row.amount,0);
@@ -502,8 +502,8 @@ function obligationsCard(debt,outstanding=false) {
     return `<path d="${path}" fill="none" stroke="${colors[(debt?rows.indexOf(row):i)%colors.length]}" stroke-width="22" data-action="${action}" data-id="${esc(row.id)}"/>`;
   });
   return `<section class="panel budget-overview cycle-overview ${debt?'debts-cycle':'charges-cycle'}"><div class="space">${outstanding?`<h3>Reste à rembourser</h3>`:`${monthPicker(true)}<button type="button" class="budget-add ghost" data-action="${debt?'add-chart-plan':'add-chart-charge'}" aria-label="${debt?'Ajouter un échéancier':'Ajouter une charge'}">+</button>`}</div>
-  <div class="budget-chart"><div class="budget-ring"><svg viewBox="0 0 128 128" aria-hidden="true"><circle cx="64" cy="64" r="51" fill="none" stroke="currentColor" opacity=".18" stroke-width="22"/>${arcs.join('')}</svg><div class="budget-ring-total"><strong>${euro(money(total))}</strong><small>${outstanding?'Total restant':'Total prévu'}</small></div></div>
-  <div class="budget-chart-keys">${(outstanding?rows:items).map((row,i)=>`<button type="button" data-action="${action}" data-id="${esc(row.id)}"><span class="budget-swatch" style="background:${colors[(debt?rows.indexOf(row):i)%colors.length]}"></span><span>${esc(row.name)}<small>${euro(money(row.amount))}</small></span></button>`).join('')||'<small>Aucun montant prévu sur ce cycle.</small>'}</div></div></section>`;
+  <div class="budget-chart"><div class="budget-ring"><svg viewBox="0 0 128 128" aria-hidden="true"><circle cx="64" cy="64" r="51" fill="none" stroke="currentColor" opacity=".18" stroke-width="22"/>${arcs.join('')}</svg><div class="budget-ring-total"><strong>${euro(money(total))}</strong><small>${outstanding?'Total restant':debt?'À payer ce cycle':'Total prévu'}</small></div></div>
+  <div class="budget-chart-keys">${(outstanding?rows:debt?rows.filter(row=>row.amount||row.paid):items).map((row,i)=>`<button type="button" data-action="${action}" data-id="${esc(row.id)}"><span class="budget-swatch" style="background:${colors[(debt?rows.indexOf(row):i)%colors.length]}"></span><span>${esc(row.name)}<small>${debt&&!outstanding&&row.paid?(row.amount?euro(money(row.amount))+' restants · ':'✓ ')+euro(money(row.paid))+' payés':euro(money(row.amount))}</small></span></button>`).join('')||'<small>Aucun montant prévu sur ce cycle.</small>'}</div></div></section>`;
 }
 function subscriptionsPage(){
   const item=db.subscriptions.find(s=>s.id===chargeEdit);
