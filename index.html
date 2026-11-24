@@ -255,7 +255,8 @@ details>summary {min-height:44px;align-content:center}
 .budget-chart-keys button{display:flex;gap:6px;align-items:center;text-align:left;width:100%;min-height:44px;padding:4px;background:transparent;border:0;color:inherit;overflow-wrap:anywhere}
 .budget-chart-keys small{display:block;font-weight:500}
 .budget-swatch{width:12px;height:12px;border-radius:50%;flex:none}
-.spending-keys>div{display:flex;gap:6px;align-items:flex-start;padding:4px;overflow-wrap:anywhere}
+.budget-ring path[data-action="open-expense-history"]{cursor:pointer}
+.spending-keys>button{display:flex;gap:6px;align-items:flex-start;padding:4px;overflow-wrap:anywhere}
 .spending-keys .budget-swatch{margin-top:5px}
 .spending-marker{display:block;text-align:center}
 </style>
@@ -344,7 +345,7 @@ function stopBudgetSimulation() {
 }
 
 function toast(message){const node=document.getElementById('toast');node.textContent=message;node.style.display='block';clearTimeout(toastTimer);toastTimer=setTimeout(()=>node.style.display='none',3600)}
-function change(section){tab=section;payForm=null;window.scrollTo(0,0);if(section==='Dettes'&&!draft)makeDraft();render()}
+function change(section){expenseHistory=editingBudgetExpense=expenseCategory=null;tab=section;payForm=null;window.scrollTo(0,0);if(section==='Dettes'&&!draft)makeDraft();render()}
 const txMonth=m=>db.transactions.filter(t=>t.date.slice(0,7)===m);
 const txIncome=m=>money(txMonth(m).filter(t=>t.type==='revenu').reduce((s,t)=>s+cents(t.amount),0));
 const txSpent=m=>money(txMonth(m).filter(t=>t.type==='depense').reduce((s,t)=>s+cents(t.amount),0));
@@ -393,9 +394,20 @@ function render() {
   const pages = {'Tableau de bord':monthlyDashboard,'Revenus':incomePage,'Transactions':transactionsPage,'Budgets':dailyBudgetPage,'Charges fixes':subscriptionsPage,'Dettes':schedulesPage,'Épargne':goalsPage,'Réglages':settingsPage};
   document.getElementById('view').innerHTML = pages[tab]();
   if(tab==='Tableau de bord') bindOverview();
+  if(tab==='Budgets' && !expenseOpen && expenseHistory!==null){
+    const history=document.getElementById('expense-history');
+    history.addEventListener('cancel',()=>{expenseHistory=null});
+    history.showModal();
+  }
   if(tab==='Budgets' && expenseOpen){
     expenseOpen=false;
-    document.getElementById('budget-expense').showModal();
+    const editor=document.getElementById('budget-expense');
+    editor.addEventListener('cancel',event=>{
+      event.preventDefault();
+      editingBudgetExpense=expenseCategory=null;
+      render();
+    });
+    editor.showModal();
   }
   if(tab==='Dettes') updateDraftTotals();
 }
@@ -476,7 +488,19 @@ function schedulesPage(){if(!draft)makeDraft();const paymentPlans=db.plans.filte
 function savePlan(){const total=cents(draft.amount),sum=draft.payments.reduce((s,p)=>s+cents(p.amount),0);if(!draft.name.trim()||!monthShift(draft.start,0)||total<=0||draft.count<1||draft.count>60||sum!==total||draft.payments.some(p=>!Number.isFinite(p.amount)||p.amount<0))return alert('Vérifiez le nom, les dates et la somme des mensualités.');const old=db.plans.find(p=>p.id===editPlanId);if(old){const retained=new Set(draft.payments.map(x=>x.id)),lost=old.payments.filter(pm=>!retained.has(pm.id));if(lost.some(pm=>linkedTransactions(old.id,pm.id).length))return alert('Impossible de supprimer une mensualité liée à un paiement réel. Déliez d’abord ce paiement.');if(old.kind!==draft.kind&&old.payments.some(pm=>linkedTransactions(old.id,pm.id).length))return alert('Déliez les dépenses réelles avant de transformer ce plan en provision.')}const id=old?.id||uid();const payments=draft.payments.map((pm,i)=>({id:pm.id||uid(),month:monthShift(draft.start,i),amount:money(cents(pm.amount)),reserved:!!pm.reserved}));const item={id,name:draft.name.trim(),kind:draft.kind,category:draft.category,amount:money(total),payments};if(old)Object.assign(old,item);else db.plans.push(item);makeDraft();keepPlanOpen=false;payForm=null;save(old?'Échéancier modifié':'Échéancier créé')}
 function savePayment(form){const f=new FormData(form),p=db.plans.find(x=>x.id===form.dataset.plan),pm=p?.payments.find(x=>x.id===form.dataset.payment);if(!p||!pm||p.kind!=='paiement')return;const existingId=f.get('existing');if(existingId){const tx=db.transactions.find(t=>t.id===existingId);if(!tx||tx.type!=='depense'||tx.planId)return alert('Cette transaction ne peut pas être liée.');tx.planId=p.id;tx.installmentId=pm.id}else{const date=normDate(f.get('date')),amount=amountFrom(f.get('amount'));if(!date||!Number.isFinite(amount)||cents(amount)<=0)return alert('Renseignez une date et un montant positif.');if(cents(amount)>cents(remaining(p,pm))&&!confirm('Ce débit dépasse la mensualité prévue. Continuer ?'))return;db.transactions.push({id:uid(),date,label:p.name,amount:money(cents(amount)),type:'depense',category:p.category||'Autres',planId:p.id,installmentId:pm.id})}payForm=null;save('Paiement lié à l’échéancier et au registre des transactions')}
 function goalsPage(){return `<h2>Épargne et objectifs</h2><section class="panel"><h3>Nouvel objectif</h3><form data-form="goal"><div class="formgrid"><div><label>Objectif</label><input name="name" placeholder="Ex. Fonds d'urgence" required maxlength="120"></div><div><label>Montant cible (€)</label><input name="target" type="number" min="0.01" step="0.01" required></div><div><label>Épargné actuellement (€)</label><input name="saved" type="number" min="0" step="0.01" value="0" required></div></div><p><button class="primary">Créer l'objectif</button></p></form></section><section class="panel"><h3>Mes objectifs</h3>${db.goals.map(g=>`<div style="margin:13px 0 20px"><div class="space"><b>${esc(g.name)}</b><span>${euro(g.saved)} / ${euro(g.target)}</span><div class="row"><button class="ghost small" data-action="goal-update" data-id="${esc(g.id)}">Mettre à jour</button><button class="danger small" data-action="remove-goal" data-id="${esc(g.id)}">Supprimer</button></div></div>${progress(g.saved,g.target)}</div>`).join('')||'<div class="empty">Aucun objectif pour le moment.</div>'}</section>`}
-function handleAction(el){const action=el.dataset.action,id=el.dataset.id,planId=el.dataset.plan,payId=el.dataset.payment;switch(action){case'reset-budget-date':return stopBudgetSimulation();case'open-budget':return document.getElementById('budget-dialog-'+(el.dataset.index??'new')).showModal();case'open-budget-expense':return document.getElementById('budget-expense').showModal();case'close-budget-dialog':return el.closest('dialog').close();case'open-savings-jar':return el.closest('article').querySelector('dialog').showModal();case'close-savings-jar':return el.closest('dialog').close();case'show-cycle':budgetPreviewDate=null;selectedMonth=visibleCycle(monthShift(el.dataset.value,0)||cycleMonth(today()));return render();case'quick-expense':return openQuickExpense(Number(el.dataset.index),el.dataset.date);case'close-expense':return document.getElementById('expense-dialog').close();case'salary-received':return recordSalary(today());case'add-expense':expenseOpen=true;return change('Budgets');case'edit-income':incomeEdit=id;return render();case'cancel-income':incomeEdit=null;return render();case'delete-income':if(confirm('Supprimer ce revenu et ses exceptions ?')){db.incomes=db.incomes.filter(i=>i.id!==id);incomeEdit=null;return save('Revenu supprimé')}return;case'tab':return change(el.dataset.value);case'edit-tx':editTxId=id;tab='Transactions';return render();case'cancel-tx':editTxId=null;return render();case'remove-tx':{const t=db.transactions.find(x=>x.id===id);if(t&&confirm('Supprimer définitivement cette opération réelle ?')){db.transactions=db.transactions.filter(x=>x.id!==id);if(editTxId===id)editTxId=null;save('Transaction supprimée')}return}case'remove-category':{const index=Number(el.dataset.index);if(confirm('Supprimer cette catégorie ? Les opérations conservent leur ancien libellé.')){db.categories.splice(index,1);save('Catégorie supprimée')}return}case'edit-charge':chargeEdit=id;return render();case'cancel-charge':chargeEdit=null;return render();case'remove-sub':if(confirm('Supprimer cet abonnement ?')){db.subscriptions=db.subscriptions.filter(x=>x.id!==id);save('Abonnement supprimé')}return;case'new-plan':makeDraft();return render();case'cancel-plan':makeDraft();return render();case'split-even':keepPlanOpen=true;draft.payments.forEach((pm,i)=>pm.amount=money(splitEven(cents(draft.amount),draft.count)[i]));draft.manual=false;return render();case'edit-plan':{const p=db.plans.find(x=>x.id===id);if(!p)return;makeDraft(p);render();document.getElementById('plan-form')?.scrollIntoView({behavior:'smooth',block:'start'});return}case'remove-plan':{const p=db.plans.find(x=>x.id===id);if(!p)return;if(!confirm('Supprimer cet échéancier ? Les dépenses réellement enregistrées seront conservées mais déliées.'))return;db.transactions.forEach(t=>{if(t.planId===id){delete t.planId;delete t.installmentId}});db.plans=db.plans.filter(x=>x.id!==id);if(editPlanId===id)makeDraft();payForm=null;save('Échéancier supprimé · dépenses conservées');return}case'open-pay':payForm={planId,paymentId:payId};return render();case'cancel-pay':payForm=null;return render();case'unlink-tx':{const t=db.transactions.find(x=>x.id===id);if(t&&confirm('Délier cette dépense de l’échéancier sans supprimer son débit réel ?')){delete t.planId;delete t.installmentId;save('Dépense déliée, montant réel conservé')}return}case'reserve':{const p=db.plans.find(x=>x.id===planId),pm=p?.payments.find(x=>x.id===payId);if(!pm||p.kind!=='provision')return;pm.reserved=!pm.reserved;save(pm.reserved?'Provision marquée comme réservée (suivi uniquement)':'Réserve annulée');return}case'goal-update':{const g=db.goals.find(x=>x.id===id);if(!g)return;const v=prompt('Montant actuellement épargné (€)',g.saved);if(v===null)return;if(!validNumber(v)||cents(amountFrom(v))<0)return alert('Montant invalide.');g.saved=money(cents(amountFrom(v)));return save('Objectif mis à jour')}case'remove-goal':if(confirm('Supprimer cet objectif ?')){db.goals=db.goals.filter(x=>x.id!==id);save('Objectif supprimé')}return;}}
+function handleAction(el){const action=el.dataset.action,id=el.dataset.id,planId=el.dataset.plan,payId=el.dataset.payment;switch(action){
+case'open-expense-history':expenseHistory=el.dataset.index;editingBudgetExpense=null;expenseCategory=null;return render();
+case'add-category-expense':editingBudgetExpense=null;expenseCategory=expenseHistory;expenseOpen=true;return render();
+case'edit-cycle-expense':editingBudgetExpense=id;expenseCategory=expenseHistory;expenseOpen=true;return render();
+case'delete-cycle-expense':
+  if(confirm('Supprimer cette dépense ?')){
+    db.transactions=db.transactions.filter(t=>t.id!==id);
+    return save('Dépense supprimée');
+  }
+  return;
+case'close-expense-history':expenseHistory=null;return el.closest('dialog').close();
+case'close-expense-editor':editingBudgetExpense=null;expenseCategory=null;return render();
+case'reset-budget-date':return stopBudgetSimulation();case'open-budget':return document.getElementById('budget-dialog-'+(el.dataset.index??'new')).showModal();case'open-budget-expense':expenseHistory=null;expenseOpen=true;return render();case'close-budget-dialog':return el.closest('dialog').close();case'open-savings-jar':return el.closest('article').querySelector('dialog').showModal();case'close-savings-jar':return el.closest('dialog').close();case'show-cycle':budgetPreviewDate=null;selectedMonth=visibleCycle(monthShift(el.dataset.value,0)||cycleMonth(today()));return render();case'quick-expense':return openQuickExpense(Number(el.dataset.index),el.dataset.date);case'close-expense':return document.getElementById('expense-dialog').close();case'salary-received':return recordSalary(today());case'add-expense':expenseOpen=true;return change('Budgets');case'edit-income':incomeEdit=id;return render();case'cancel-income':incomeEdit=null;return render();case'delete-income':if(confirm('Supprimer ce revenu et ses exceptions ?')){db.incomes=db.incomes.filter(i=>i.id!==id);incomeEdit=null;return save('Revenu supprimé')}return;case'tab':return change(el.dataset.value);case'edit-tx':editTxId=id;tab='Transactions';return render();case'cancel-tx':editTxId=null;return render();case'remove-tx':{const t=db.transactions.find(x=>x.id===id);if(t&&confirm('Supprimer définitivement cette opération réelle ?')){db.transactions=db.transactions.filter(x=>x.id!==id);if(editTxId===id)editTxId=null;save('Transaction supprimée')}return}case'remove-category':{const index=Number(el.dataset.index);if(confirm('Supprimer cette catégorie ? Les opérations conservent leur ancien libellé.')){db.categories.splice(index,1);save('Catégorie supprimée')}return}case'edit-charge':chargeEdit=id;return render();case'cancel-charge':chargeEdit=null;return render();case'remove-sub':if(confirm('Supprimer cet abonnement ?')){db.subscriptions=db.subscriptions.filter(x=>x.id!==id);save('Abonnement supprimé')}return;case'new-plan':makeDraft();return render();case'cancel-plan':makeDraft();return render();case'split-even':keepPlanOpen=true;draft.payments.forEach((pm,i)=>pm.amount=money(splitEven(cents(draft.amount),draft.count)[i]));draft.manual=false;return render();case'edit-plan':{const p=db.plans.find(x=>x.id===id);if(!p)return;makeDraft(p);render();document.getElementById('plan-form')?.scrollIntoView({behavior:'smooth',block:'start'});return}case'remove-plan':{const p=db.plans.find(x=>x.id===id);if(!p)return;if(!confirm('Supprimer cet échéancier ? Les dépenses réellement enregistrées seront conservées mais déliées.'))return;db.transactions.forEach(t=>{if(t.planId===id){delete t.planId;delete t.installmentId}});db.plans=db.plans.filter(x=>x.id!==id);if(editPlanId===id)makeDraft();payForm=null;save('Échéancier supprimé · dépenses conservées');return}case'open-pay':payForm={planId,paymentId:payId};return render();case'cancel-pay':payForm=null;return render();case'unlink-tx':{const t=db.transactions.find(x=>x.id===id);if(t&&confirm('Délier cette dépense de l’échéancier sans supprimer son débit réel ?')){delete t.planId;delete t.installmentId;save('Dépense déliée, montant réel conservé')}return}case'reserve':{const p=db.plans.find(x=>x.id===planId),pm=p?.payments.find(x=>x.id===payId);if(!pm||p.kind!=='provision')return;pm.reserved=!pm.reserved;save(pm.reserved?'Provision marquée comme réservée (suivi uniquement)':'Réserve annulée');return}case'goal-update':{const g=db.goals.find(x=>x.id===id);if(!g)return;const v=prompt('Montant actuellement épargné (€)',g.saved);if(v===null)return;if(!validNumber(v)||cents(amountFrom(v))<0)return alert('Montant invalide.');g.saved=money(cents(amountFrom(v)));return save('Objectif mis à jour')}case'remove-goal':if(confirm('Supprimer cet objectif ?')){db.goals=db.goals.filter(x=>x.id!==id);save('Objectif supprimé')}return;}}
 document.addEventListener('click',e=>{const el=e.target.closest('[data-action]');if(el)handleAction(el)});
 document.addEventListener('submit',e=>{const form=e.target.closest('form[data-form]');if(!form)return;e.preventDefault();const f=new FormData(form);switch(form.dataset.form){case'quick-expense':return saveQuickExpense(form,f);case'edit-budget':{
   const category=db.categories[Number(form.dataset.index)], limit=amountFrom(f.get('limit'));
@@ -498,7 +522,7 @@ document.addEventListener('input',e=>{const el=e.target;if(el.id==='cycle-day'){
   document.getElementById('dashboard-budgets').innerHTML=budgetCards(period,variableExpenses(period),date,true);
   return;
 }if(el.matches('[data-draft]')){const key=el.dataset.draft;if(key==='amount'){const v=amountFrom(el.value);draft.amount=Number.isFinite(v)?v:0;if(!draft.manual){const split=splitEven(Math.max(0,cents(draft.amount)),draft.count);document.querySelectorAll('[data-payment-index]').forEach((input,i)=>{draft.payments[i].amount=money(split[i]);input.value=draft.payments[i].amount})}updateDraftTotals()}else if(key==='name')draft.name=el.value;else if(key==='start'){draft.start=el.value;document.getElementById('draft-rows').innerHTML=draft.payments.map((pm,i)=>`<div class="edit-row"><strong>${esc(monthLabel(monthShift(draft.start,i)))}</strong><div class="edit-row-note muted">Mensualité ${i+1}</div><div><input aria-label="Montant du mois ${i+1}" type="number" min="0" step="0.01" data-payment-index="${i}" value="${pm.amount}" required></div></div>`).join('');updateDraftTotals()}else if(key==='count'){const n=Number(el.value);if(Number.isInteger(n)&&n>=1&&n<=60){resizeDraft(n);document.getElementById('draft-rows').innerHTML=draft.payments.map((pm,i)=>`<div class="edit-row"><strong>${esc(monthLabel(monthShift(draft.start,i)))}</strong><div class="edit-row-note muted">Mensualité ${i+1}</div><div><input aria-label="Montant du mois ${i+1}" type="number" min="0" step="0.01" data-payment-index="${i}" value="${pm.amount}" required></div></div>`).join('');updateDraftTotals()}else document.getElementById('save-plan').disabled=true}else if(key==='kind'||key==='category')draft[key]=el.value;return}if(el.matches('[data-payment-index]')){const idx=Number(el.dataset.paymentIndex),val=amountFrom(el.value);draft.payments[idx].amount=Number.isFinite(val)?val:NaN;draft.manual=true;updateDraftTotals()}});
-document.addEventListener('change',e=>{const el=e.target;if(el.id==='cycle-day'){const period=cycle(selectedMonth);return simulateBudgetDay(dateAtDay(dayNumber(period.start)+Number(el.value)-1));}if(el.id==='month-filter'){selectedMonth=monthShift(el.value,0)?cycleKeyForBudgetMonth(el.value):visibleCycle(cycleMonth(today()));budgetPreviewDate=null;return render()}if(el.id==='tx-filter'){txFilter=el.value;return render()}if(el.matches('[data-limit]')){const idx=Number(el.dataset.limit),value=amountFrom(el.value);if(!Number.isFinite(value)||value<0){alert('Plafond invalide.');return render()}db.categories[idx].limit=money(cents(value));return save('Plafond mis à jour')}if(el.name==='existing'&&el.closest('form[data-form="pay-installment"]')){const form=el.closest('form'),linked=!!el.value;for(const field of ['date','amount']){form.elements[field].disabled=linked;form.elements[field].required=!linked}return}});
+document.addEventListener('change',e=>{const el=e.target;if(el.id==='cycle-day'){const period=cycle(selectedMonth);return simulateBudgetDay(dateAtDay(dayNumber(period.start)+Number(el.value)-1));}if(el.id==='month-filter'){selectedMonth=monthShift(el.value,0)?cycleKeyForBudgetMonth(el.value):visibleCycle(cycleMonth(today()));budgetPreviewDate=null;expenseHistory=editingBudgetExpense=expenseCategory=null;return render()}if(el.id==='tx-filter'){txFilter=el.value;return render()}if(el.matches('[data-limit]')){const idx=Number(el.dataset.limit),value=amountFrom(el.value);if(!Number.isFinite(value)||value<0){alert('Plafond invalide.');return render()}db.categories[idx].limit=money(cents(value));return save('Plafond mis à jour')}if(el.name==='existing'&&el.closest('form[data-form="pay-installment"]')){const form=el.closest('form'),linked=!!el.value;for(const field of ['date','amount']){form.elements[field].disabled=linked;form.elements[field].required=!linked}return}});
 let incomeEdit = null;
 let chargeEdit = null;
 
@@ -837,6 +861,9 @@ function categoryIcon(name) {
 }
 
 let expenseOpen = false;
+let expenseHistory = null;
+let editingBudgetExpense = null;
+let expenseCategory = null;
 function budgetBreakdown(period, entries) {
   const viewDate = budgetViewDate();
   const items = cycleCategories().map(({budget,index})=>({
@@ -859,9 +886,9 @@ function budgetBreakdown(period, entries) {
     const used = length*Math.max(0,Math.min(1,data.used/data.cap));
     const marker = Math.max(offset+.02,Math.min(offset+length-.02,offset+length*data.released/data.cap));
     spendingSlices.push(`<path d="${geometry(offset,length)}" fill="none" stroke="${color}" stroke-opacity=".40" stroke-width="2" vector-effect="non-scaling-stroke"/>
-      <path d="${geometry(offset,length)}" fill="none" stroke="${color}" stroke-opacity=".22" stroke-width="22"/>
-      ${used>0?`<path d="${geometry(offset,used)}" fill="none" stroke="${color}" stroke-width="22"/>`:''}
-      <line x1="64" y1="3" x2="64" y2="23" stroke="#193b50" stroke-width="2" transform="rotate(${marker*3.6} 64 64)"/>`);
+      <path d="${geometry(offset,length)}" fill="none" stroke="${color}" stroke-opacity=".22" stroke-width="22" data-action="open-expense-history" data-index="${index}"/>
+      ${used>0?`<path d="${geometry(offset,used)}" fill="none" stroke="${color}" stroke-width="22" data-action="open-expense-history" data-index="${index}"/>`:''}
+      <line x1="64" y1="3" x2="64" y2="23" stroke="#193b50" stroke-width="2" transform="rotate(${marker*3.6} 64 64)" pointer-events="none"/>`);
     offset += length;
     return arc;
   });
@@ -875,23 +902,32 @@ function budgetBreakdown(period, entries) {
   <section class="panel budget-overview"><div class="space"><div><h3>Dépenses</h3>${simulatedBudgetDate?`<small>Date simulée · ${shortDate(viewDate)}</small>`:''}</div><button type="button" class="budget-add ghost" data-action="open-budget-expense" aria-haspopup="dialog" aria-label="Ajouter une dépense">+</button></div>
   <div class="budget-chart"><div class="budget-ring"><svg viewBox="0 0 128 128" aria-hidden="true">${spendingSlices.length?spendingSlices.join(''):'<circle cx="64" cy="64" r="51" fill="none" stroke="#a7c6d8" stroke-width="2"/>'}</svg>
   <div class="budget-ring-total"><strong>${euro(money(spent))}</strong><small>Total dépensé</small></div></div>
-  <div class="budget-chart-keys spending-keys">${items.map(({budget,data,color})=>`<div><span class="budget-swatch" style="background:${color}" aria-hidden="true"></span><span><strong>${esc(budget.name)}</strong><small>${euro(money(data.used))} dépensés</small><small>${euro(money(Math.abs(data.cap-data.used)))} ${data.used>data.cap?'dépassés':'restants'}</small></span></div>`).join('')}
-  ${unbudgeted>0?`<div><span>Hors budget<small>${euro(money(unbudgeted))} dépensés</small></span></div>`:''}</div></div>
+  <div class="budget-chart-keys spending-keys">${items.map(({budget,data,color,index})=>`<button type="button" data-action="open-expense-history" data-index="${index}" aria-haspopup="dialog"><span class="budget-swatch" style="background:${color}" aria-hidden="true"></span><span><strong>${esc(budget.name)}</strong><small>${euro(money(data.used))} dépensés</small><small>${euro(money(Math.abs(data.cap-data.used)))} ${data.used>data.cap?'dépassés':'restants'}</small></span></button>`).join('')}
+  ${entries.some(entry=>!items.some(({budget})=>budget.name===entry.category))?`<button type="button" data-action="open-expense-history" data-index="other" aria-haspopup="dialog"><span>Hors budget<small>${euro(money(unbudgeted))} dépensés</small></span></button>`:''}</div></div>
   ${total>0?'<small class="spending-marker">│ Budget débloqué à ce jour</small>':''}</section>`;
 }
 function dailyBudgetPage() {
   const period = cycle(selectedMonth), viewDate = budgetViewDate();
   const date = viewDate<period.start ? period.start : viewDate>period.end ? period.end : viewDate;
-  const entries = variableExpenses(period);
+  const entries = variableExpenses(period), categories = cycleCategories();
+  const category = categories.find(item=>String(item.index)===expenseHistory)?.budget;
+  const edit = entries.find(entry=>entry.id===editingBudgetExpense);
+  const history = entries.filter(entry=>category ? entry.category===category.name :
+    !categories.some(({budget})=>budget.name===entry.category)).sort((a,b)=>b.date.localeCompare(a.date));
   return `<div class="toolbar"><h2>Budgets</h2></div>
   ${budgetBreakdown(period,entries)}
-  <dialog class="jar-dialog" id="budget-expense" aria-label="Ajouter une dépense"><div class="space"><h3>Ajouter une dépense</h3><button type="button" class="ghost small" data-action="close-budget-dialog">Fermer</button></div><form data-form="daily-expense">
-  <label>Catégorie<select name="category" required>${cycleCategories().map(({budget:c,index:i})=>`<option value="${i}">${esc(c.name)}</option>`).join('')}</select></label>
-  <div class="formgrid"><label>Libellé facultatif<input name="label" maxlength="120" placeholder="Ex. Supermarché"></label>
-  <label>Montant (€)<input name="amount" type="number" min="0.01" step="0.01" required></label>
-  <label>Date<input name="date" type="date" min="${period.start}" max="${period.end}" value="${date}" required></label></div>
-  <p><button class="primary" ${cycleCategories().length?'':'disabled'}>Enregistrer</button></p></form></dialog>
-  <details class="panel forecast"><summary>Dépenses du cycle (${entries.length})</summary>${txTable(entries.slice().sort((a,b)=>b.date.localeCompare(a.date)))}</details>`;
+  ${expenseHistory!==null?`<dialog class="jar-dialog" id="expense-history" aria-label="Historique des dépenses">
+    <div class="space"><h3>${esc(category?.name || 'Hors budget')}</h3><button type="button" class="ghost small" data-action="close-expense-history">Fermer</button></div>
+    <p class="muted">Du ${shortDate(period.start)} au ${shortDate(period.end)}</p>
+    ${category?`<button type="button" class="primary small" data-action="add-category-expense">+ Ajouter une dépense</button>`:''}
+    ${history.length?table(['Date','Achat','Montant','Actions'],history.map(entry=>`<tr><td>${shortDate(entry.date)}</td><td>${esc(entry.label)}</td><td class="money">${euro(entry.amount)}</td><td><div class="row"><button type="button" class="ghost small" data-action="edit-cycle-expense" data-id="${esc(entry.id)}">Modifier</button><button type="button" class="danger small" data-action="delete-cycle-expense" data-id="${esc(entry.id)}">Supprimer</button></div></td></tr>`).join('')):'<p>Aucun achat sur ce cycle.</p>'}
+  </dialog>`:''}
+  <dialog class="jar-dialog" id="budget-expense" aria-label="${edit?'Modifier la dépense':'Ajouter une dépense'}"><div class="space"><h3>${edit?'Modifier la dépense':'Ajouter une dépense'}</h3><button type="button" class="ghost small" data-action="close-expense-editor">Fermer</button></div><form data-form="daily-expense" data-id="${esc(edit?.id||'')}">
+  ${edit?'<p>'+esc(edit.category)+'</p>':`<label>Catégorie<select name="category" required>${categories.map(({budget:c,index:i})=>`<option value="${i}" ${String(i)===expenseCategory?'selected':''}>${esc(c.name)}</option>`).join('')}</select></label>`}
+  <div class="formgrid"><label>Libellé facultatif<input name="label" maxlength="120" placeholder="Ex. Supermarché" value="${esc(edit?.label||'')}"></label>
+  <label>Montant (€)<input name="amount" type="number" min="0.01" step="0.01" value="${edit?.amount??''}" required></label>
+  <label>Date<input name="date" type="date" min="${period.start}" max="${period.end}" value="${edit?.date||date}" required></label></div>
+  <p><button class="primary" ${edit||categories.length?'':'disabled'}>Enregistrer</button></p></form></dialog>`;
 }
 function settingsPage() {
   const latest = db.salaryReceipts.at(-1);
@@ -925,11 +961,15 @@ function saveMonthlyForm(form) {
     else item.exceptions[month] = money(cents(amount));
     return save('Revenu du mois mis à jour');
   }
-  const category = f.get('category') === null ? null : db.categories[Number(f.get('category'))];
+  const edit = variableExpenses(cycle(selectedMonth)).find(entry=>entry.id===form.dataset.id);
+  const category = edit ? {name:edit.category} : cycleCategories().find(item=>String(item.index)===f.get('category'))?.budget;
   const date = normDate(f.get('date')), label = String(f.get('label') || '').trim();
   if (!category || !date || cycleMonth(date) !== selectedMonth || cents(amount) <= 0)
     return alert('Vérifiez la catégorie, la date et le montant.');
-  db.transactions.push({id:uid(),date,label:label||category.name,type:'depense',category:category.name,amount:money(cents(amount))});
+  const fields = {date,label:label||category.name,amount:money(cents(amount))};
+  if(edit) Object.assign(edit,fields);
+  else db.transactions.push({...fields,id:uid(),type:'depense',category:category.name});
+  editingBudgetExpense=expenseCategory=null;
   expenseOpen = false;
   if(date>budgetViewDate()&&!simulatedBudgetDate)budgetPreviewDate=date;
   return save('Dépense enregistrée');
