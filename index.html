@@ -255,6 +255,9 @@ details>summary {min-height:44px;align-content:center}
 .budget-chart-keys button{display:flex;gap:6px;align-items:center;text-align:left;width:100%;min-height:44px;padding:4px;background:transparent;border:0;color:inherit;overflow-wrap:anywhere}
 .budget-chart-keys small{display:block;font-weight:500}
 .budget-swatch{width:12px;height:12px;border-radius:50%;flex:none}
+.spending-keys>div{display:flex;gap:6px;align-items:flex-start;padding:4px;overflow-wrap:anywhere}
+.spending-keys .budget-swatch{margin-top:5px}
+.spending-marker{display:block;text-align:center}
 </style>
 </head>
 <body>
@@ -805,25 +808,39 @@ function budgetBreakdown(period, entries) {
   }));
   const total = items.reduce((sum,item)=>sum+item.data.cap,0);
   let offset = 0;
+  const spendingSlices = [];
   const slices = items.filter(item=>item.data.cap>0).map(({data,color,index})=>{
     const length = 100*data.cap/total;
     const point = percent=>{
       const angle = percent*Math.PI/50-Math.PI/2;
       return [64+51*Math.cos(angle),64+51*Math.sin(angle)].join(' ');
     };
-    const geometry = length===100
+    const geometry = (start, size)=>size>=100
       ? 'M 64 13 A 51 51 0 1 1 64 115 A 51 51 0 1 1 64 13'
-      : `M ${point(offset)} A 51 51 0 ${length>50?1:0} 1 ${point(offset+length)}`;
-    const arc = `<path d="${geometry}" fill="none" stroke="${color}" stroke-width="22" data-action="open-budget" data-index="${index}"/>`;
+      : `M ${point(start)} A 51 51 0 ${size>50?1:0} 1 ${point(start+size)}`;
+    const arc = `<path d="${geometry(offset,length)}" fill="none" stroke="${color}" stroke-width="22" data-action="open-budget" data-index="${index}"/>`;
+    const used = length*Math.max(0,Math.min(1,data.used/data.cap));
+    const marker = Math.max(offset+.02,Math.min(offset+length-.02,offset+length*data.released/data.cap));
+    spendingSlices.push(`<path d="${geometry(offset,length)}" fill="none" stroke="${color}" stroke-opacity=".40" stroke-width="2" vector-effect="non-scaling-stroke"/>
+      <path d="${geometry(offset,length)}" fill="none" stroke="${color}" stroke-opacity=".22" stroke-width="22"/>
+      ${used>0?`<path d="${geometry(offset,used)}" fill="none" stroke="${color}" stroke-width="22"/>`:''}
+      <line x1="64" y1="3" x2="64" y2="23" stroke="#193b50" stroke-width="2" transform="rotate(${marker*3.6} 64 64)"/>`);
     offset += length;
     return arc;
   });
-  return `<section class="panel budget-overview cycle-overview"><div class="space">${monthPicker(true)}<button type="button" class="budget-add ghost" data-action="open-budget-expense" aria-label="Ajouter une dépense">+</button></div>
+  const spent = entries.filter(entry=>entry.date<=today()).reduce((sum,entry)=>sum+cents(entry.amount),0);
+  const unbudgeted = spent-items.reduce((sum,item)=>sum+item.data.used,0);
+  return `<section class="panel budget-overview cycle-overview"><div class="space">${monthPicker(true)}<button type="button" class="budget-add ghost" data-action="open-budget" aria-haspopup="dialog" aria-label="Nouveau budget">+</button></div>
   <div class="budget-chart"><div class="budget-ring"><svg viewBox="0 0 128 128" aria-hidden="true"><circle cx="64" cy="64" r="51" fill="none" stroke="#a7c6d8" stroke-width="22"/>${slices.join('')}</svg>
   <div class="budget-ring-total"><strong>${euro(money(total))}</strong><small>Total prévu</small></div></div>
   <div class="budget-chart-keys">${items.map(({budget,data,color,index})=>`<button type="button" data-action="open-budget" data-index="${index}" aria-haspopup="dialog"><span class="budget-swatch" style="background:${color}" aria-hidden="true"></span><span>${esc(budget.name)}<small>${euro(money(data.cap))}</small></span></button>`).join('')}</div></div>
-  <button type="button" class="ghost small" data-action="open-budget" aria-haspopup="dialog">+ Nouveau budget</button>
-  ${[...items,null].map(item=>`<dialog class="jar-dialog" id="budget-dialog-${item?.index??'new'}" aria-label="${item?esc(item.budget.name):'Nouveau budget'}"><button type="button" class="ghost small" data-action="close-budget-dialog">Fermer</button>${budgetForm(item)}</dialog>`).join('')}</section>`;
+  ${[...items,null].map(item=>`<dialog class="jar-dialog" id="budget-dialog-${item?.index??'new'}" aria-label="${item?esc(item.budget.name):'Nouveau budget'}"><button type="button" class="ghost small" data-action="close-budget-dialog">Fermer</button>${budgetForm(item)}</dialog>`).join('')}</section>
+  <section class="panel budget-overview"><div class="space"><h3>Dépenses</h3><button type="button" class="budget-add ghost" data-action="open-budget-expense" aria-haspopup="dialog" aria-label="Ajouter une dépense">+</button></div>
+  <div class="budget-chart"><div class="budget-ring"><svg viewBox="0 0 128 128" aria-hidden="true">${spendingSlices.length?spendingSlices.join(''):'<circle cx="64" cy="64" r="51" fill="none" stroke="#a7c6d8" stroke-width="2"/>'}</svg>
+  <div class="budget-ring-total"><strong>${euro(money(spent))}</strong><small>Total dépensé</small></div></div>
+  <div class="budget-chart-keys spending-keys">${items.map(({budget,data,color})=>`<div><span class="budget-swatch" style="background:${color}" aria-hidden="true"></span><span><strong>${esc(budget.name)}</strong><small>${euro(money(data.used))} dépensés</small><small>${euro(money(Math.abs(data.cap-data.used)))} ${data.used>data.cap?'dépassés':'restants'}</small></span></div>`).join('')}
+  ${unbudgeted>0?`<div><span>Hors budget<small>${euro(money(unbudgeted))} dépensés</small></span></div>`:''}</div></div>
+  ${total>0?'<small class="spending-marker">│ Budget débloqué à ce jour</small>':''}</section>`;
 }
 function dailyBudgetPage() {
   const period = cycle(selectedMonth), date = today()<period.start ? period.start : today()>period.end ? period.end : today();
