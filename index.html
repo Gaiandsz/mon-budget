@@ -480,7 +480,9 @@ function categoryForMonth(category, month) {
   const changes = category.changes || [];
   const once = changes.find(change=>change.once && change.month===month);
   const ongoing = changes.filter(change=>!change.once && change.month<=month).sort((a,b)=>b.month.localeCompare(a.month))[0];
-  return once || ongoing || (category.scoped ? null : category);
+  const effective = once || ongoing;
+  if (effective) return {...effective, name:category.name};
+  return category.scoped ? null : category;
 }
 function cycleCategories(month=selectedMonth) {
   return db.categories.map((category,index)=>({budget:categoryForMonth(category,budgetMonth(month)),index})).filter(item=>item.budget);
