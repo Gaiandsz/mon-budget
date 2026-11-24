@@ -195,7 +195,11 @@ details>summary {min-height:44px;align-content:center}
 #launch-skip{right:16px;background:#fff9eb;color:#793b26}
 #launch-sound{left:16px;margin-top:12px;background:#fff9eb;color:#793b26}
 .period-picker select{display:inline-block;width:auto;max-width:100%;font-size:16px;min-height:44px}
-.cycle-overview .cycle-title{color:var(--ink)}
+.overview-track:not(:has(details[open])){align-items:stretch}
+.overview-track .cycle-overview{background:#b84519;color:#fff9eb;border-color:#b84519}
+.cycle-overview .cycle-title,.cycle-overview .space{color:inherit}
+.cycle-overview .bar{background:#843516}
+.cycle-overview .bar>div{background:#f1d491}
 .cycle-overview .bar{margin:14px 0}
 .cycle-overview .cycle-switch{margin:12px 0 0}
 .overview-track .forecast{margin-bottom:0}
@@ -284,7 +288,8 @@ function bindOverview() {
     const step = slides[1].offsetLeft - slides[0].offsetLeft;
     if (!step) return;
     overviewIndex = track.scrollLeft >= step / 2 ? 1 : 0;
-    track.style.height = Math.ceil(slides[overviewIndex].getBoundingClientRect().height) + 'px';
+    track.style.height = track.querySelector('details[open]')
+      ? Math.ceil(slides[overviewIndex].getBoundingClientRect().height) + 'px' : '';
     buttons.forEach((button,i)=>button.setAttribute('aria-pressed',String(i===overviewIndex)));
   }
   function move(i,behavior) {
@@ -294,6 +299,7 @@ function bindOverview() {
     window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'));
   move(overviewIndex,'auto');
   track.addEventListener('scroll',sync,{passive:true});
+  track.addEventListener('toggle',sync,true);
   overviewObserver = new ResizeObserver(sync);
   slides.forEach(slide=>overviewObserver.observe(slide));
   sync();
