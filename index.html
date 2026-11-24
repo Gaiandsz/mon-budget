@@ -259,6 +259,7 @@ details>summary {min-height:44px;align-content:center}
 .spending-keys>button{display:flex;gap:6px;align-items:flex-start;padding:4px;overflow-wrap:anywhere}
 .spending-keys .budget-swatch{margin-top:5px}
 .spending-marker{display:block;text-align:center}
+.panel.income-overview{background:#d9a344;color:#42291b}
 </style>
 </head>
 <body>
@@ -489,6 +490,8 @@ function savePlan(){const total=cents(draft.amount),sum=draft.payments.reduce((s
 function savePayment(form){const f=new FormData(form),p=db.plans.find(x=>x.id===form.dataset.plan),pm=p?.payments.find(x=>x.id===form.dataset.payment);if(!p||!pm||p.kind!=='paiement')return;const existingId=f.get('existing');if(existingId){const tx=db.transactions.find(t=>t.id===existingId);if(!tx||tx.type!=='depense'||tx.planId)return alert('Cette transaction ne peut pas être liée.');tx.planId=p.id;tx.installmentId=pm.id}else{const date=normDate(f.get('date')),amount=amountFrom(f.get('amount'));if(!date||!Number.isFinite(amount)||cents(amount)<=0)return alert('Renseignez une date et un montant positif.');if(cents(amount)>cents(remaining(p,pm))&&!confirm('Ce débit dépasse la mensualité prévue. Continuer ?'))return;db.transactions.push({id:uid(),date,label:p.name,amount:money(cents(amount)),type:'depense',category:p.category||'Autres',planId:p.id,installmentId:pm.id})}payForm=null;save('Paiement lié à l’échéancier et au registre des transactions')}
 function goalsPage(){return `<h2>Épargne et objectifs</h2><section class="panel"><h3>Nouvel objectif</h3><form data-form="goal"><div class="formgrid"><div><label>Objectif</label><input name="name" placeholder="Ex. Fonds d'urgence" required maxlength="120"></div><div><label>Montant cible (€)</label><input name="target" type="number" min="0.01" step="0.01" required></div><div><label>Épargné actuellement (€)</label><input name="saved" type="number" min="0" step="0.01" value="0" required></div></div><p><button class="primary">Créer l'objectif</button></p></form></section><section class="panel"><h3>Mes objectifs</h3>${db.goals.map(g=>`<div style="margin:13px 0 20px"><div class="space"><b>${esc(g.name)}</b><span>${euro(g.saved)} / ${euro(g.target)}</span><div class="row"><button class="ghost small" data-action="goal-update" data-id="${esc(g.id)}">Mettre à jour</button><button class="danger small" data-action="remove-goal" data-id="${esc(g.id)}">Supprimer</button></div></div>${progress(g.saved,g.target)}</div>`).join('')||'<div class="empty">Aucun objectif pour le moment.</div>'}</section>`}
 function handleAction(el){const action=el.dataset.action,id=el.dataset.id,planId=el.dataset.plan,payId=el.dataset.payment;switch(action){
+case'open-income':return document.getElementById('income-dialog-'+(el.dataset.index??'new')).showModal();
+case'reset-income-month':{const item=db.incomes.find(i=>i.id===id);if(!item)return;delete item.exceptions[item.start>budgetMonth(selectedMonth)?item.start:budgetMonth(selectedMonth)];return save('Montant habituel rétabli');}
 case'open-expense-history':expenseHistory=el.dataset.index;editingBudgetExpense=null;expenseCategory=null;return render();
 case'add-category-expense':editingBudgetExpense=null;expenseCategory=expenseHistory;expenseOpen=true;return render();
 case'edit-cycle-expense':editingBudgetExpense=id;expenseCategory=expenseHistory;expenseOpen=true;return render();
@@ -534,34 +537,76 @@ function normalizeIncome(raw) {
     kind: ['Salaire', 'Aide', 'Autre'].includes(item.kind) ? item.kind : 'Autre',
     start: item.start,
     amount: Math.max(0, cents(item.amount)) / 100,
+    once: item.once===true,
+    rates: Object.fromEntries(Object.entries(item.rates || {})
+      .filter(([month, amount]) => monthShift(month,0) && Number.isFinite(amount) && amount>=0)),
     exceptions: Object.fromEntries(Object.entries(item.exceptions || {})
       .filter(([month, amount]) => monthShift(month, 0) && Number.isFinite(amount) && amount >= 0))
   }));
 }
 
-function incomePage() {
-  const item = db.incomes.find(income => income.id === incomeEdit);
-  const month = budgetMonth(selectedMonth);
-  return `<div class="toolbar"><h2>Revenus mensuels</h2><span class="right"></span>${monthPicker()}</div>
-  <details class="panel" ${item?'open':''}><summary>${item?'Modifier le revenu':'+ Ajouter un revenu'}</summary>
-  <form data-form="recurring-income"><div class="formgrid">
-  <label>Libellé<input name="name" required maxlength="120" placeholder="Ex. APL" value="${esc(item?.name)}"></label>
-  <label>Type<select name="kind">${uiSelect(['Salaire','Aide','Autre'], item?.kind || 'Salaire')}</select></label>
-  <label>Montant mensuel habituel (€)<input name="amount" type="number" min="0" step="0.01" required value="${item?.amount ?? ''}"></label>
-  <label>Premier mois<input name="start" type="month" required value="${esc(item?.start || month)}"></label>
-  </div><p><button class="primary">Enregistrer</button> ${item ? '<button type="button" class="ghost" data-action="cancel-income">Annuler</button>' : ''}</p></form></details>
-  <section class="panel"><h3>${esc(monthLabel(month))} · ${euro(money(monthlyIncome(month)))}</h3>
-  <p class="muted">Pour un mois différent, indiquez le montant qui remplace le montant habituel. Saisissez 0 si le revenu est suspendu ce mois-là.</p>
-  ${db.incomes.map(income => `<article class="plan-card"><div class="space"><strong>${esc(income.name)}</strong><span class="pill">${esc(income.kind)}</span></div>
-  <p>${euro(income.amount)} par mois · depuis ${esc(monthLabel(income.start))}</p>
-  ${month >= income.start ? `<form data-form="income-exception" data-id="${esc(income.id)}" class="row"><label>Montant pour ${esc(monthLabel(month))} (€)<input name="amount" type="number" min="0" step="0.01" placeholder="${income.amount}" value="${income.exceptions[month] ?? ''}"></label><button class="ghost small">Appliquer</button></form>
-  <p class="tiny">Laissez le champ vide et appliquez pour rétablir le montant habituel.</p>` : '<p class="muted">Ce revenu démarre après le mois sélectionné.</p>'}
-  <div class="row"><button class="ghost small" data-action="edit-income" data-id="${esc(income.id)}">Modifier le revenu</button><button class="danger small" data-action="delete-income" data-id="${esc(income.id)}">Supprimer</button></div></article>`).join('') || '<p class="empty">Aucun revenu renseigné.</p>'}</section>`;
+function incomeApplies(item, month) {
+  return item.start<=month && (!item.once || item.start===month);
 }
-
+function regularIncome(item, month) {
+  const latest=Object.keys(item.rates||{}).filter(key=>key<=month).sort().at(-1);
+  return latest ? item.rates[latest] : item.amount;
+}
+function incomeAmount(item, month) {
+  return incomeApplies(item,month)?cents(item.exceptions[month]??regularIncome(item,month)):0;
+}
+function ringArc(start,size) {
+    const point = percent=>{
+      const angle = percent*Math.PI/50-Math.PI/2;
+      return [64+51*Math.cos(angle),64+51*Math.sin(angle)].join(' ');
+    };
+    return size>=100
+      ? 'M 64 13 A 51 51 0 1 1 64 115 A 51 51 0 1 1 64 13'
+      : `M ${point(start)} A 51 51 0 ${size>50?1:0} 1 ${point(start+size)}`;
+}
+function incomePage() {
+  const month=budgetMonth(selectedMonth);
+  const visible=db.incomes.filter(item=>incomeApplies(item,month)||item.start>month);
+  const colors=['#2e654a','#b84519','#c1dbe9','#e9b49b','#79553e'];
+  const total=monthlyIncome(month);
+  let offset=0;
+  const legend=visible.map(item=>{
+    const index=db.incomes.indexOf(item);
+    const amount=incomeAmount(item,month);
+    return {item,index,amount,color:colors[index%colors.length]};
+  });
+  const arcs=legend.filter(({amount})=>amount>0).map(({index,amount,color})=>{
+    const length=100*amount/total;
+    const arc=`<path d="${ringArc(offset,length)}" fill="none" stroke="${color}" stroke-width="22" data-action="open-income" data-index="${index}"/>`;
+    offset+=length;
+    return arc;
+  });
+  return `<div class="toolbar"><h2>Revenus</h2></div>
+  <section class="panel budget-overview income-overview cycle-overview">
+    <div class="space">${monthPicker(true)}<button type="button" class="budget-add ghost" data-action="open-income" aria-haspopup="dialog" aria-label="Ajouter un revenu">+</button></div>
+    <div class="budget-chart"><div class="budget-ring"><svg viewBox="0 0 128 128" aria-hidden="true"><circle cx="64" cy="64" r="51" fill="none" stroke="#bd852f" stroke-width="22"/>${arcs.join('')}</svg>
+    <div class="budget-ring-total"><strong>${euro(money(total))}</strong><small>Total prévu</small></div></div>
+    <div class="budget-chart-keys">${legend.map(({item,index,color,amount})=>`<button type="button" data-action="open-income" data-index="${index}" aria-haspopup="dialog"><span class="budget-swatch" style="background:${color}" aria-hidden="true"></span><span>${esc(item.name)}<small>${item.start>month?'Dès '+esc(monthLabel(item.start)):euro(money(amount))}</small></span></button>`).join('')||'<p>Aucun revenu prévu.</p>'}</div></div>
+  </section>
+  ${[...legend,null].map(entry=>incomeDialog(entry,month)).join('')}`;
+}
+function incomeDialog(entry, month) {
+  const item=entry?.item, effective=item && item.start>month ? item.start : month;
+  const heading=item?.name || 'Nouveau revenu';
+  return `<dialog class="jar-dialog" id="income-dialog-${entry?.index??'new'}" aria-label="${esc(heading)}">
+    <div class="space"><h3>${esc(heading)}</h3><button type="button" class="ghost small" data-action="close-budget-dialog">Fermer</button></div>
+    <form data-form="recurring-income" data-id="${esc(item?.id||'')}"><div class="formgrid">
+      ${item?`<p>${esc(item.kind)} · ${esc(monthLabel(effective))}</p>`:`<label>Libellé<input name="name" required maxlength="120" placeholder="Ex. APL"></label>
+      <label>Type<select name="kind">${uiSelect(['Salaire','Aide','Autre'],'Salaire')}</select></label>
+      <label>Premier mois<input name="start" type="month" required value="${esc(month)}"></label>`}
+      <label>Montant (€)<input name="amount" type="number" min="0" step="0.01" required value="${item?money(incomeAmount(item,effective)):''}"></label>
+      ${item?.once?'':`<label>Appliquer à<select name="scope"><option value="once">Ce mois uniquement</option><option value="ongoing">Ce mois et les suivants</option></select></label>`}
+    </div><div class="row"><button class="primary">Enregistrer</button>${item?`<button type="button" class="danger small" data-action="delete-income" data-id="${esc(item.id)}">Supprimer</button>`:''}
+    ${item && Object.hasOwn(item.exceptions,effective)?`<button type="button" class="ghost small" data-action="reset-income-month" data-id="${esc(item.id)}">Rétablir le montant habituel</button>`:''}</div></form>
+  </dialog>`;
+}
 function monthlyIncome(month) {
-  return db.incomes.filter(item => item.start <= month)
-    .reduce((sum, item) => sum + cents(item.exceptions[month] ?? item.amount), 0);
+  return db.incomes.reduce((sum,item)=>sum+incomeAmount(item,month),0);
 }
 
 function dayNumber(date) { return Date.parse(date + 'T00:00:00Z') / 86400000; }
@@ -875,19 +920,12 @@ function budgetBreakdown(period, entries) {
   const spendingSlices = [];
   const slices = items.filter(item=>item.data.cap>0).map(({data,color,index})=>{
     const length = 100*data.cap/total;
-    const point = percent=>{
-      const angle = percent*Math.PI/50-Math.PI/2;
-      return [64+51*Math.cos(angle),64+51*Math.sin(angle)].join(' ');
-    };
-    const geometry = (start, size)=>size>=100
-      ? 'M 64 13 A 51 51 0 1 1 64 115 A 51 51 0 1 1 64 13'
-      : `M ${point(start)} A 51 51 0 ${size>50?1:0} 1 ${point(start+size)}`;
-    const arc = `<path d="${geometry(offset,length)}" fill="none" stroke="${color}" stroke-width="22" data-action="open-budget" data-index="${index}"/>`;
+    const arc = `<path d="${ringArc(offset,length)}" fill="none" stroke="${color}" stroke-width="22" data-action="open-budget" data-index="${index}"/>`;
     const used = length*Math.max(0,Math.min(1,data.used/data.cap));
     const marker = Math.max(offset+.02,Math.min(offset+length-.02,offset+length*data.released/data.cap));
-    spendingSlices.push(`<path d="${geometry(offset,length)}" fill="none" stroke="${color}" stroke-opacity=".40" stroke-width="2" vector-effect="non-scaling-stroke"/>
-      <path d="${geometry(offset,length)}" fill="none" stroke="${color}" stroke-opacity=".22" stroke-width="22" data-action="open-expense-history" data-index="${index}"/>
-      ${used>0?`<path d="${geometry(offset,used)}" fill="none" stroke="${color}" stroke-width="22" data-action="open-expense-history" data-index="${index}"/>`:''}
+    spendingSlices.push(`<path d="${ringArc(offset,length)}" fill="none" stroke="${color}" stroke-opacity=".40" stroke-width="2" vector-effect="non-scaling-stroke"/>
+      <path d="${ringArc(offset,length)}" fill="none" stroke="${color}" stroke-opacity=".22" stroke-width="22" data-action="open-expense-history" data-index="${index}"/>
+      ${used>0?`<path d="${ringArc(offset,used)}" fill="none" stroke="${color}" stroke-width="22" data-action="open-expense-history" data-index="${index}"/>`:''}
       <line x1="64" y1="3" x2="64" y2="23" stroke="#193b50" stroke-width="2" transform="rotate(${marker*3.6} 64 64)" pointer-events="none"/>`);
     offset += length;
     return arc;
@@ -945,21 +983,24 @@ function saveMonthlyForm(form) {
   const amount = amountFrom(raw);
   if (!Number.isFinite(amount) || amount < 0) return alert('Vérifiez le montant.');
   if (form.dataset.form === 'recurring-income') {
-    const name = String(f.get('name') || '').trim(), start = f.get('start'), kind = f.get('kind');
-    if (!name || !monthShift(start,0)) return alert('Vérifiez le libellé et le mois de début.');
-    const item = db.incomes.find(i => i.id === incomeEdit);
-    if (item) Object.assign(item, {name, start, kind, amount:money(cents(amount))});
-    else db.incomes.push({id:uid(),name,start,kind,amount:money(cents(amount)),exceptions:{}});
-    incomeEdit = null;
+    const item=db.incomes.find(i=>i.id===form.dataset.id);
+    const once=f.get('scope')!=='ongoing', value=money(cents(amount));
+    if (item) {
+      const month=budgetMonth(selectedMonth);
+      const effective=item.start>month?item.start:month;
+      if (item.once) item.amount=value;
+      else if (once) item.exceptions[effective]=value;
+      else {
+        item.rates={...(item.rates||{}),[effective]:value};
+        delete item.exceptions[effective];
+      }
+    } else {
+      if (form.dataset.id) return;
+      const name=String(f.get('name')||'').trim(), start=f.get('start'), kind=f.get('kind');
+      if(!name||!monthShift(start,0)||!['Salaire','Aide','Autre'].includes(kind)) return alert('Vérifiez le libellé et le mois de début.');
+      db.incomes.push({id:uid(),name,start,kind,once,amount:value,rates:{},exceptions:{}});
+    }
     return save('Revenu enregistré');
-  }
-  if (form.dataset.form === 'income-exception') {
-    const item = db.incomes.find(i => i.id === form.dataset.id);
-    const month = budgetMonth(selectedMonth);
-    if (!item || month < item.start) return;
-    if (raw === '') delete item.exceptions[month];
-    else item.exceptions[month] = money(cents(amount));
-    return save('Revenu du mois mis à jour');
   }
   const edit = variableExpenses(cycle(selectedMonth)).find(entry=>entry.id===form.dataset.id);
   const category = edit ? {name:edit.category} : cycleCategories().find(item=>String(item.index)===f.get('category'))?.budget;
