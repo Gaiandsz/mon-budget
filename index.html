@@ -217,8 +217,10 @@ details>summary {min-height:44px;align-content:center}
 .budget-breakdown p{margin:5px 0}
 .savings-jar{display:grid;justify-items:center;gap:6px;width:100%;background:transparent;border:1px solid transparent;color:var(--ink);padding:6px}
 .jar-lid{width:110px;height:17px;border-radius:9px 9px 5px 5px;background:repeating-linear-gradient(90deg,#8c3e26 0 2px,#b65e42 2px 5px);margin-bottom:-8px;z-index:1}
-.jar-glass{position:relative;display:block;width:min(160px,85%);height:140px;border:2px solid #ae8b6d;border-radius:30px 30px 27px 27px;overflow:hidden;background:#f1e6d4;box-shadow:inset 0 -6px 0 #b4937826}
+.jar-glass{position:relative;display:block;width:min(160px,85%);height:206px;border:2px solid #ae8b6d;border-radius:30px 30px 27px 27px;overflow:hidden;background:#f1e6d4;box-shadow:inset 0 -6px 0 #b4937826}
 .jar-glass::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,#fff7,transparent 22%,transparent 82%,#fff5);pointer-events:none}
+.jar-label{position:absolute;inset:0;z-index:1;display:grid;place-content:center;justify-items:center;gap:2px;padding:12px;overflow-wrap:anywhere}
+.jar-label>*{max-width:100%;padding:1px 7px;border-radius:8px;background:#fcf6e9e8}
 .jar-layer{position:absolute;inset-inline:0}
 .jar-saved{bottom:0;background:#2e654a}
 .jar-legend{display:flex;flex-wrap:wrap;justify-content:center;gap:4px 12px;font-size:12px}
@@ -701,15 +703,13 @@ function dashboardGoals() {
       return height ? `<span class="jar-layer" style="bottom:${bottom}%;height:${height}%;background:${['#ebae8c','#d98560','#b95d39'][index]}"></span>` : '';
     }).join('');
     return `<article class="plan-card savings-chart">
-    <div class="space"><strong>${esc(goal.name)}</strong><span>${euro(goal.saved)} sur ${euro(goal.target)} épargnés</span></div>
     <p><strong>Horizon estimé</strong> · ${gap<=0?'Objectif atteint':reached?esc(monthLabel(budgetMonth(reached.month))):'Au-delà des 12 cycles prévus'}</p>
-    <button type="button" class="savings-jar" data-action="open-savings-jar" aria-haspopup="dialog" aria-label="Modifier l’épargne et voir les projections pour ${esc(goal.name)}">
+    <button type="button" class="savings-jar" data-action="open-savings-jar" aria-haspopup="dialog" aria-label="${esc(goal.name)} · ${euro(goal.saved)} épargnés sur ${euro(goal.target)}. Modifier le solde et voir les projections">
       <span class="jar-lid" aria-hidden="true"></span>
       <span class="jar-glass" aria-hidden="true">
         ${layers}<span class="jar-layer jar-saved" style="height:${level(saved)}%"></span>
+        <span class="jar-label"><strong>${esc(goal.name)}</strong><span>${euro(goal.saved)}</span></span>
       </span>
-      <strong>${euro(goal.target)}</strong>
-      <small>Modifier le solde · Voir les projections</small>
     </button>
     <p class="jar-legend"><span>● Épargne réelle</span><span>● Projection des 3 prochains cycles</span></p>
     <dialog class="jar-dialog" aria-label="Épargne et projections · ${esc(goal.name)}">
